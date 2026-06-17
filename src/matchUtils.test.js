@@ -1,10 +1,13 @@
 import { describe, expect, test } from "vitest";
 import {
+  SPORTS,
   buildKnockoutRounds,
   getLiveMatches,
   getNextMatches,
   getTodayMatches,
+  normalizeEspnScoreboard,
   normalizeFifaMatches,
+  summarizeEvents,
   summarizeTournament,
 } from "./matchUtils.js";
 
@@ -76,7 +79,7 @@ describe("normalizeFifaMatches", () => {
     const [match] = normalizeFifaMatches(response);
 
     expect(match).toMatchObject({
-      id: "group-1",
+      id: "fifa-group-1",
       matchNumber: 23,
       stage: "First Stage",
       group: "Group K",
@@ -215,6 +218,131 @@ describe("live and next match helpers", () => {
   });
 });
 
+describe("normalizeEspnScoreboard", () => {
+  test("normalizes ESPN team scoreboard events into the shared event shape", () => {
+    const sport = SPORTS.find((candidate) => candidate.id === "mlb");
+    const matches = normalizeEspnScoreboard(
+      {
+        leagues: [{ name: "Major League Baseball" }],
+        events: [
+          {
+            id: "401815778",
+            uid: "s:1~l:10~e:401815778",
+            name: "San Francisco Giants at Atlanta Braves",
+            shortName: "SF @ ATL",
+            date: "2026-06-16T23:15Z",
+            competitions: [
+              {
+                id: "401815778",
+                date: "2026-06-16T23:15Z",
+                status: {
+                  displayClock: "Top 7th",
+                  type: { state: "in", shortDetail: "Top 7th" },
+                },
+                venue: { fullName: "Truist Park", address: { city: "Atlanta" } },
+                competitors: [
+                  {
+                    homeAway: "home",
+                    score: "2",
+                    team: {
+                      id: "15",
+                      displayName: "Atlanta Braves",
+                      shortDisplayName: "Braves",
+                      abbreviation: "ATL",
+                      logo: "https://example.com/atl.png",
+                    },
+                  },
+                  {
+                    homeAway: "away",
+                    score: "7",
+                    team: {
+                      id: "26",
+                      displayName: "San Francisco Giants",
+                      shortDisplayName: "Giants",
+                      abbreviation: "SF",
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+      sport,
+    );
+
+    expect(matches[0]).toMatchObject({
+      id: "mlb-10-401815778",
+      sportId: "mlb",
+      sportLabel: "MLB",
+      title: "Braves vs Giants",
+      status: "live",
+      statusLabel: "Top 7th",
+      clockLabel: "Top 7th",
+      city: "Atlanta",
+      homeScore: "2",
+      awayScore: "7",
+    });
+  });
+
+  test("flattens ESPN tennis tournament groupings into match cards", () => {
+    const sport = SPORTS.find((candidate) => candidate.id === "tennis");
+    const matches = normalizeEspnScoreboard(
+      {
+        leagues: [{ name: "WTA" }],
+        events: [
+          {
+            id: "635-2026",
+            uid: "s:850~l:900~e:635-2026",
+            name: "Berlin Tennis Open",
+            shortName: "Berlin Open",
+            date: "2026-06-18T09:00Z",
+            groupings: [
+              {
+                grouping: { displayName: "Women's Singles" },
+                competitions: [
+                  {
+                    id: "179699",
+                    date: "2026-06-18T09:00Z",
+                    status: {
+                      type: { state: "pre", shortDetail: "TBD", description: "Scheduled" },
+                    },
+                    round: { displayName: "Quarterfinal" },
+                    type: { text: "Women's Singles" },
+                    venue: { fullName: "Berlin, Germany" },
+                    competitors: [
+                      {
+                        id: "1",
+                        homeAway: "home",
+                        athlete: { displayName: "Coco Gauff", shortName: "C. Gauff" },
+                      },
+                      {
+                        id: "2",
+                        homeAway: "away",
+                        athlete: { displayName: "Iga Swiatek", shortName: "I. Swiatek" },
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+      sport,
+    );
+
+    expect(matches[0]).toMatchObject({
+      id: "tennis-900-179699",
+      sportId: "tennis",
+      title: "C. Gauff vs I. Swiatek",
+      stage: "Quarterfinal - Women's Singles",
+      status: "upcoming",
+      city: "Berlin, Germany",
+    });
+  });
+});
+
 describe("summarizeTournament", () => {
   test("counts total, completed, live, upcoming, and next match", () => {
     const summary = summarizeTournament(normalizeFifaMatches(response), new Date("2026-06-17T12:00:00-04:00"));
@@ -225,6 +353,24 @@ describe("summarizeTournament", () => {
       live: 0,
       upcoming: 2,
       nextMatchNumber: 73,
+    });
+  });
+});
+
+describe("summarizeEvents", () => {
+  test("summarizes shared multi-sport event arrays", () => {
+    const summary = summarizeEvents([
+      { status: "live", date: "2026-06-17T20:00:00Z", title: "Live Game" },
+      { status: "upcoming", date: "2026-06-17T23:00:00Z", title: "Next Game" },
+      { status: "completed", date: "2026-06-16T23:00:00Z", title: "Final Game" },
+    ], new Date("2026-06-17T19:00:00Z"));
+
+    expect(summary).toMatchObject({
+      total: 3,
+      live: 1,
+      upcoming: 1,
+      completed: 1,
+      nextTitle: "Live Game",
     });
   });
 });

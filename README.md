@@ -1,15 +1,16 @@
-# BRNDN - Fifa Tracker
+# BRNDN Sports Tracker
 
-A React + Vite dashboard for the FIFA World Cup 2026 knockout bracket.
+A React + Vite live sports dashboard for NFL, MLB, NHL, NBA, FIFA, MLS, Tennis and Golf.
 
 ## What It Does
 
-- Fetches live match data from FIFA's public API:
-  `https://api.fifa.com/api/v3/calendar/matches?...idCompetition=17&idSeason=285023`
-- Normalizes FIFA match JSON into team, score, status, venue, placeholder, and round data.
-- Shows the Round of 32 through the Final as a sports-broadcast bracket.
-- Shows today's matches, feed health, completed/live/upcoming totals, and manual refresh.
-- Auto-refreshes every 60 seconds.
+- Fetches live data from public scoreboard APIs:
+  - ESPN APIs for NFL, MLB, NHL, NBA, MLS, Tennis and Golf
+  - FIFA API for the 2026 FIFA World Cup feed and knockout bracket
+- Normalizes every feed into one event model with status, scores, competitors, venue, and kickoff time.
+- Shows category tabs, live/next-up command center, summary totals, event cards, and feed health.
+- Keeps the FIFA category's pyramid World Cup bracket.
+- Auto-refreshes every 60 seconds and supports manual refresh.
 
 ## Run It
 

@@ -85,6 +85,7 @@ button {
 .app-header,
 .live-command,
 .bracket-shell,
+.event-board,
 .side-panel,
 .empty-state {
   background: linear-gradient(135deg, rgba(8, 22, 31, 0.9), rgba(5, 14, 20, 0.76));
@@ -209,6 +210,85 @@ button {
   display: grid;
   gap: 16px;
   padding-top: 16px;
+}
+
+.sport-switcher {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(112px, 1fr));
+  gap: 10px;
+  animation: rise-in 460ms ease 40ms both;
+}
+
+.sport-tab {
+  position: relative;
+  display: grid;
+  min-height: 92px;
+  gap: 4px;
+  overflow: hidden;
+  padding: 12px;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.035)),
+    rgba(7, 18, 25, 0.88);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 12px 26px rgba(0, 0, 0, 0.22);
+  transition:
+    transform 170ms ease,
+    border-color 170ms ease,
+    box-shadow 170ms ease;
+}
+
+.sport-tab::after {
+  position: absolute;
+  inset: auto 10px 8px 10px;
+  height: 2px;
+  content: "";
+  background: linear-gradient(90deg, var(--green), var(--gold), var(--red));
+  border-radius: 999px;
+  opacity: 0;
+  transform: scaleX(0.45);
+  transform-origin: left center;
+  transition:
+    opacity 170ms ease,
+    transform 170ms ease;
+}
+
+.sport-tab:hover,
+.sport-tab.active {
+  transform: translateY(-2px);
+  border-color: rgba(90, 217, 255, 0.44);
+  box-shadow:
+    0 16px 34px rgba(0, 0, 0, 0.3),
+    0 0 30px rgba(90, 217, 255, 0.08);
+}
+
+.sport-tab.active::after {
+  opacity: 1;
+  transform: scaleX(1);
+}
+
+.sport-tab.has-error {
+  border-color: rgba(255, 69, 61, 0.38);
+}
+
+.sport-tab strong {
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.sport-tab span,
+.sport-tab small {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.sport-tab span {
+  color: var(--cyan);
 }
 
 .live-command {
@@ -444,6 +524,12 @@ button {
   animation: rise-in 560ms ease 150ms both;
 }
 
+.event-board {
+  min-width: 0;
+  overflow: hidden;
+  animation: rise-in 560ms ease 150ms both;
+}
+
 .section-heading {
   display: flex;
   align-items: flex-end;
@@ -472,6 +558,19 @@ button {
   height: 3px;
   background: linear-gradient(90deg, transparent, var(--green), var(--gold), var(--red));
   border-radius: 999px;
+}
+
+.source-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 6px 10px;
+  color: #061015;
+  background: linear-gradient(135deg, var(--gold), var(--green));
+  border-radius: 8px;
+  font-size: 0.74rem;
+  font-weight: 950;
+  white-space: nowrap;
 }
 
 .bracket-scroll {
@@ -573,6 +672,10 @@ button {
 .match-card.pyramid-card {
   min-height: var(--card-height);
   padding: 10px;
+}
+
+.match-card.event-card {
+  min-height: 170px;
 }
 
 .match-card:hover {
@@ -787,6 +890,18 @@ button {
   position: static;
   padding: 14px;
   animation: rise-in 560ms ease 180ms both;
+}
+
+.event-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(236px, 1fr));
+  gap: 12px;
+  padding: 18px;
+}
+
+.compact-empty {
+  min-height: 260px;
+  margin: 18px;
 }
 
 .panel-section {
@@ -1073,6 +1188,10 @@ button {
 }
 
 @media (max-width: 1260px) {
+  .sport-switcher {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
   .live-command {
     grid-template-columns: 1fr;
   }
@@ -1085,6 +1204,10 @@ button {
 @media (max-width: 840px) {
   .app {
     padding: 14px;
+  }
+
+  .sport-switcher {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .app-header {
@@ -1125,6 +1248,10 @@ button {
 }
 
 @media (max-width: 560px) {
+  .sport-switcher {
+    grid-template-columns: 1fr;
+  }
+
   .brand-lockup h1 {
     font-size: 1.36rem;
     line-height: 1.05;

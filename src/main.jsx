@@ -16,23 +16,38 @@ import {
   Zap,
 } from "lucide-react";
 import {
-  FIFA_WORLD_CUP_2026_API,
+  SPORTS,
   buildKnockoutRounds,
+  compareEventsForDisplay,
   getLiveMatches,
   getNextMatches,
   getTodayMatches,
+  normalizeEspnScoreboard,
   normalizeFifaMatches,
-  summarizeTournament,
+  sportById,
+  summarizeEvents,
 } from "./matchUtils.js";
 import "./styles.css";
 
 const REFRESH_INTERVAL_MS = 60_000;
+const DEFAULT_SPORT_ID = "fifa";
 const THIRD_PLACE_LABEL = "Play-off for third place";
 const CARD_WIDTH = 214;
 const CARD_HEIGHT = 166;
 const LANE_WIDTH = 252;
 const BRACKET_STEP = 178;
 const BRACKET_TOP = 76;
+
+function emptyFeed(sport) {
+  return {
+    sport,
+    events: [],
+    summary: summarizeEvents([]),
+    loading: true,
+    error: null,
+    lastUpdated: null,
+  };
+}
 
 function formatKickoff(date) {
   return new Intl.DateTimeFormat(undefined, {
@@ -54,43 +69,81 @@ function formatSeconds(ms) {
   return Math.max(0, Math.ceil(ms / 1000));
 }
 
-function flagAlt(team) {
-  return team.placeholder ? "" : `${team.name} flag`;
+function formatSourceCount(sport) {
+  return sport.apiUrls.length === 1 ? "1 feed" : `${sport.apiUrls.length} feeds`;
 }
 
-function useFifaMatches() {
-  const [matches, setMatches] = useState([]);
+function flagAlt(team) {
+  return team.placeholder ? "" : `${team.name} logo`;
+}
+
+async function fetchJson(url) {
+  const response = await fetch(url, { headers: { Accept: "application/json" } });
+  if (!response.ok) throw new Error(`${url} returned ${response.status}`);
+  return response.json();
+}
+
+async function loadSportFeed(sport, now) {
+  const payloads = await Promise.all(sport.apiUrls.map(fetchJson));
+  const events =
+    sport.type === "fifa"
+      ? normalizeFifaMatches(payloads[0], { now })
+      : payloads
+          .flatMap((payload) => normalizeEspnScoreboard(payload, sport, { now }))
+          .sort(compareEventsForDisplay(now));
+
+  return {
+    sport,
+    events,
+    summary: summarizeEvents(events, now),
+    loading: false,
+    error: null,
+    lastUpdated: now,
+  };
+}
+
+function useSportsFeeds() {
+  const [feeds, setFeeds] = useState(() => Object.fromEntries(SPORTS.map((sport) => [sport.id, emptyFeed(sport)])));
   const [lastUpdated, setLastUpdated] = useState(null);
   const [nextRefreshAt, setNextRefreshAt] = useState(null);
-  const [error, setError] = useState(null);
-  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const refresh = useCallback(async () => {
+    const fetchedAt = new Date();
     setRefreshing(true);
-    try {
-      const response = await fetch(FIFA_WORLD_CUP_2026_API, {
-        headers: { Accept: "application/json" },
+    const results = await Promise.all(
+      SPORTS.map(async (sport) => {
+        try {
+          return { sportId: sport.id, feed: await loadSportFeed(sport, fetchedAt) };
+        } catch (error) {
+          return {
+            sportId: sport.id,
+            error: error instanceof Error ? error.message : `Could not load ${sport.label}`,
+          };
+        }
+      }),
+    );
+
+    setFeeds((currentFeeds) => {
+      const nextFeeds = { ...currentFeeds };
+      results.forEach((result) => {
+        if (result.feed) {
+          nextFeeds[result.sportId] = result.feed;
+          return;
+        }
+
+        nextFeeds[result.sportId] = {
+          ...currentFeeds[result.sportId],
+          loading: false,
+          error: result.error,
+          lastUpdated: fetchedAt,
+        };
       });
-
-      if (!response.ok) {
-        throw new Error(`FIFA API returned ${response.status}`);
-      }
-
-      const payload = await response.json();
-      const fetchedAt = new Date();
-      const normalized = normalizeFifaMatches(payload, { now: fetchedAt });
-      setMatches(normalized);
-      setLastUpdated(fetchedAt);
-      setNextRefreshAt(new Date(Date.now() + REFRESH_INTERVAL_MS));
-      setError(null);
-    } catch (apiError) {
-      setError(apiError instanceof Error ? apiError.message : "Could not load FIFA data");
-      setNextRefreshAt(new Date(Date.now() + REFRESH_INTERVAL_MS));
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
+      return nextFeeds;
+    });
+    setLastUpdated(fetchedAt);
+    setNextRefreshAt(new Date(Date.now() + REFRESH_INTERVAL_MS));
+    setRefreshing(false);
   }, []);
 
   useEffect(() => {
@@ -99,7 +152,7 @@ function useFifaMatches() {
     return () => window.clearInterval(interval);
   }, [refresh]);
 
-  return { matches, lastUpdated, nextRefreshAt, error, loading, refreshing, refresh };
+  return { feeds, lastUpdated, nextRefreshAt, refreshing, refresh };
 }
 
 function StatCard({ icon: Icon, label, value, tone }) {
@@ -129,8 +182,8 @@ function Header({ refreshing, lastUpdated, nextRefreshAt, onRefresh }) {
           <Trophy />
         </div>
         <div>
-          <h1>BRNDN - Fifa Tracker</h1>
-          <p>Live from FIFA API</p>
+          <h1>BRNDN Sports Tracker</h1>
+          <p>NFL, MLB, NHL, NBA, FIFA, MLS, Tennis & Golf live data</p>
         </div>
       </div>
 
@@ -152,6 +205,32 @@ function Header({ refreshing, lastUpdated, nextRefreshAt, onRefresh }) {
   );
 }
 
+function SportsTabs({ activeSportId, feeds, onSelect }) {
+  return (
+    <nav className="sport-switcher" aria-label="Sports categories">
+      {SPORTS.map((sport) => {
+        const feed = feeds[sport.id] || emptyFeed(sport);
+        const isActive = activeSportId === sport.id;
+
+        return (
+          <button
+            className={`sport-tab ${isActive ? "active" : ""} ${feed.error ? "has-error" : ""}`}
+            data-sport-id={sport.id}
+            key={sport.id}
+            onClick={() => onSelect(sport.id)}
+            type="button"
+            aria-pressed={isActive}
+          >
+            <strong>{sport.label}</strong>
+            <span>{feed.error ? "Feed issue" : `${feed.summary.live} live`}</span>
+            <small>{feed.summary.total} events</small>
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
 function CommandTeam({ team, score }) {
   return (
     <div className={`command-team ${team.placeholder ? "placeholder" : ""}`}>
@@ -168,48 +247,54 @@ function CommandTeam({ team, score }) {
   );
 }
 
-function LiveCommandCenter({ liveMatches, nextMatches, summary }) {
-  const featured = liveMatches[0] || nextMatches[0] || null;
+function LiveCommandCenter({ feed, allFeeds }) {
+  const activeLive = getLiveMatches(feed.events);
+  const activeNext = getNextMatches(feed.events, new Date(), 3);
+  const featured = activeLive[0] || activeNext[0] || feed.events[0] || null;
   const isLive = featured?.status === "live";
-  const queuedMatches = nextMatches.filter((match) => match.id !== featured?.id).slice(0, 2);
+  const globalQueue = SPORTS.flatMap((sport) => getLiveMatches(allFeeds[sport.id]?.events || []).slice(0, 2))
+    .sort((a, b) => new Date(a.date) - new Date(b.date))
+    .slice(0, 3);
+  const fallbackQueue = activeNext.filter((event) => event.id !== featured?.id).slice(0, 3);
+  const queue = globalQueue.length ? globalQueue : fallbackQueue;
 
   return (
-    <section className={`live-command ${isLive ? "is-live" : ""}`} aria-label="Live match command center">
+    <section className={`live-command ${isLive ? "is-live" : ""}`} aria-label="Live sports command center">
       <div className="live-copy">
         <div className="live-eyeline">
           {isLive ? <Radio aria-hidden="true" /> : <Clock3 aria-hidden="true" />}
-          <span>{isLive ? "Live Now" : "Next Up"}</span>
+          <span>{isLive ? "Live Now" : "Next Up"} / {feed.sport.label}</span>
         </div>
-        <h2 className="live-title">{featured ? `${featured.home.shortName} vs ${featured.away.shortName}` : "No match window active"}</h2>
+        <h2 className="live-title">{featured ? featured.title : `${feed.sport.label} feed loading`}</h2>
         <p>
           {featured
             ? `${featured.stage} - ${formatKickoff(featured.date)}${featured.city ? ` - ${featured.city}` : ""}`
-            : "FIFA has no active or upcoming match in the current feed window."}
+            : `${feed.sport.source} has not returned events yet.`}
         </p>
       </div>
 
       {featured ? (
-        <div className="live-scoreboard" aria-label={`${featured.home.name} versus ${featured.away.name}`}>
+        <div className="live-scoreboard" aria-label={featured.title}>
           <CommandTeam team={featured.home} score={featured.homeScore} />
           <div className="command-clock">
             <span className={isLive ? "pulse-dot live" : "pulse-dot"} />
             <strong>{isLive ? featured.clockLabel : formatShortKickoff(featured.date)}</strong>
-            <small>{isLive ? "FIFA live window" : "kickoff"}</small>
+            <small>{isLive ? featured.statusLabel : "kickoff"}</small>
           </div>
           <CommandTeam team={featured.away} score={featured.awayScore} />
         </div>
       ) : null}
 
-      <div className="live-queue" aria-label="Upcoming match queue">
+      <div className="live-queue" aria-label="Cross-sport live queue">
         <div>
           <Sparkles aria-hidden="true" />
-          <span>{summary.live ? `${summary.live} live` : "No active live match"}</span>
+          <span>{globalQueue.length ? "Live across sports" : "Upcoming in this sport"}</span>
         </div>
-        {queuedMatches.map((match) => (
-          <article key={match.id}>
-            <strong>#{match.matchNumber}</strong>
-            <span>{match.home.shortName} / {match.away.shortName}</span>
-            <small>{formatShortKickoff(match.date)}</small>
+        {queue.map((event) => (
+          <article key={event.id}>
+            <strong>{event.sportLabel}</strong>
+            <span>{event.title}</span>
+            <small>{event.status === "live" ? event.clockLabel : formatShortKickoff(event.date)}</small>
           </article>
         ))}
       </div>
@@ -241,17 +326,18 @@ function TeamRow({ team, score, penaltyScore, winner }) {
   );
 }
 
-function MatchCard({ match, roundIndex, isLastRound, variant = "" }) {
+function MatchCard({ match, roundIndex = 0, isLastRound = false, variant = "" }) {
   const isLive = match.status === "live";
   const isDone = match.status === "completed";
+  const metaLabel = match.matchNumber ? `#${match.matchNumber}` : match.sportLabel;
 
   return (
     <article
       className={`match-card ${variant} ${match.status} round-${roundIndex} ${isLastRound ? "last-round" : ""} ${match.stage === "Final" ? "final-card" : ""}`}
-      aria-label={`Match ${match.matchNumber}, ${match.home.name} versus ${match.away.name}`}
+      aria-label={match.title}
     >
       <div className="match-meta">
-        <span>#{match.matchNumber}</span>
+        <span>{metaLabel}</span>
         <span className={`status-pill ${match.status}`}>
           {isLive ? <Zap aria-hidden="true" /> : isDone ? <CheckCircle2 aria-hidden="true" /> : <CalendarDays aria-hidden="true" />}
           {match.statusLabel}
@@ -273,7 +359,7 @@ function MatchCard({ match, roundIndex, isLastRound, variant = "" }) {
 
       <div className="match-footer">
         <span>{formatKickoff(match.date)}</span>
-        <span><MapPin aria-hidden="true" /> {match.city || match.venue || "Venue TBD"}</span>
+        <span><MapPin aria-hidden="true" /> {match.city || match.venue || match.broadcast || "Venue TBD"}</span>
       </div>
     </article>
   );
@@ -319,7 +405,6 @@ function buildPyramidGeometry(rounds) {
   });
 
   return {
-    mainRounds,
     placementMatch: placementRound?.matches?.[0] || null,
     lanes,
     connectorPaths,
@@ -333,8 +418,8 @@ function BracketBoard({ rounds }) {
     return (
       <section className="empty-state">
         <Trophy aria-hidden="true" />
-        <h2>Knockout bracket is loading</h2>
-        <p>FIFA has not returned knockout matches yet. The board will fill automatically.</p>
+        <h2>FIFA bracket is loading</h2>
+        <p>The World Cup knockout board will fill when FIFA returns those matches.</p>
       </section>
     );
   }
@@ -347,13 +432,13 @@ function BracketBoard({ rounds }) {
     <section className="bracket-shell" aria-labelledby="bracket-title">
       <div className="section-heading">
         <div>
-          <h2 id="bracket-title">Pyramid Bracket</h2>
-          <p>Knockout paths now converge into the Final instead of reading as columns.</p>
+          <h2 id="bracket-title">FIFA World Cup Pyramid</h2>
+          <p>Knockout paths converge into the Final while the live tracker keeps every sport available above.</p>
         </div>
         <span className="accent-rule" aria-hidden="true" />
       </div>
 
-      <div className="bracket-scroll" role="region" aria-label="Scrollable World Cup pyramid bracket">
+      <div className="bracket-scroll" role="region" aria-label="Scrollable FIFA World Cup pyramid bracket">
         <div
           className="pyramid-board"
           style={{
@@ -413,9 +498,42 @@ function BracketBoard({ rounds }) {
   );
 }
 
-function TodayPanel({ matches, summary, liveMatches, nextMatches }) {
+function EventGrid({ feed }) {
+  const visibleEvents = feed.events.slice(0, 18);
+
   return (
-    <aside className="side-panel" aria-label="Today and feed status">
+    <section className="event-board" aria-labelledby="events-title">
+      <div className="section-heading">
+        <div>
+          <h2 id="events-title">{feed.sport.label} Live Board</h2>
+          <p>{feed.sport.name} data from {feed.sport.source}. Showing live, next, then recent events.</p>
+        </div>
+        <span className="source-pill">{formatSourceCount(feed.sport)}</span>
+      </div>
+      {visibleEvents.length ? (
+        <div className="event-grid">
+          {visibleEvents.map((event) => (
+            <MatchCard key={event.id} match={event} variant="event-card" />
+          ))}
+        </div>
+      ) : (
+        <div className="empty-state compact-empty">
+          <Activity aria-hidden="true" />
+          <h2>No events in this feed yet</h2>
+          <p>{feed.error || `${feed.sport.source} returned an empty scoreboard.`}</p>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function InfoPanel({ feed }) {
+  const liveMatches = getLiveMatches(feed.events);
+  const todayMatches = getTodayMatches(feed.events);
+  const nextMatches = getNextMatches(feed.events, new Date(), 4);
+
+  return (
+    <aside className="side-panel" aria-label={`${feed.sport.label} status`}>
       <section className={`panel-section live-panel ${liveMatches.length ? "has-live" : ""}`}>
         <div className="panel-heading">
           <Radio aria-hidden="true" />
@@ -423,28 +541,24 @@ function TodayPanel({ matches, summary, liveMatches, nextMatches }) {
         </div>
         {liveMatches.length ? (
           <div className="today-list">
-            {liveMatches.map((match) => (
+            {liveMatches.slice(0, 4).map((match) => (
               <article className="today-match live-row" key={match.id}>
                 <div>
                   <span className="dot live" />
                   <strong>{match.clockLabel}</strong>
                 </div>
-                <p>
-                  {match.home.shortName} <span>{match.homeScore ?? ""}</span>
-                  <em>vs</em>
-                  <span>{match.awayScore ?? ""}</span> {match.away.shortName}
-                </p>
-                <small>{match.city || match.venue || "FIFA API live window"}</small>
+                <p>{match.title}</p>
+                <small>{match.city || match.venue || match.source}</small>
               </article>
             ))}
           </div>
         ) : (
           <div className="next-up-list">
-            <p className="panel-empty">No active live match from FIFA right now.</p>
-            {nextMatches.slice(0, 2).map((match) => (
+            <p className="panel-empty">No active live event in {feed.sport.label} right now.</p>
+            {nextMatches.slice(0, 3).map((match) => (
               <article key={match.id}>
-                <span>#{match.matchNumber}</span>
-                <strong>{match.home.shortName} vs {match.away.shortName}</strong>
+                <span>{match.sportLabel}</span>
+                <strong>{match.title}</strong>
                 <small>{formatKickoff(match.date)}</small>
               </article>
             ))}
@@ -458,21 +572,17 @@ function TodayPanel({ matches, summary, liveMatches, nextMatches }) {
           <h2>Today</h2>
         </div>
         <div className="today-list">
-          {matches.length === 0 ? (
-            <p className="panel-empty">No FIFA World Cup matches listed for today.</p>
+          {todayMatches.length === 0 ? (
+            <p className="panel-empty">No {feed.sport.label} events listed for today.</p>
           ) : (
-            matches.map((match) => (
+            todayMatches.slice(0, 5).map((match) => (
               <article className="today-match" key={match.id}>
                 <div>
                   <span className={`dot ${match.status}`} />
-                  <strong>{formatShortKickoff(match.date)}</strong>
+                  <strong>{match.status === "live" ? match.clockLabel : formatShortKickoff(match.date)}</strong>
                 </div>
-                <p>
-                  {match.home.shortName} <span>{match.homeScore ?? ""}</span>
-                  <em>vs</em>
-                  <span>{match.awayScore ?? ""}</span> {match.away.shortName}
-                </p>
-                <small>{match.status === "completed" ? "FT" : match.status === "live" ? "Live now" : match.city || "Scheduled"}</small>
+                <p>{match.title}</p>
+                <small>{match.status === "completed" ? match.statusLabel : match.city || "Scheduled"}</small>
               </article>
             ))
           )}
@@ -487,23 +597,23 @@ function TodayPanel({ matches, summary, liveMatches, nextMatches }) {
         <dl className="feed-list">
           <div>
             <dt>Source</dt>
-            <dd>api.fifa.com</dd>
+            <dd>{feed.sport.source}</dd>
           </div>
           <div>
-            <dt>Total matches</dt>
-            <dd>{summary.total}</dd>
+            <dt>Total events</dt>
+            <dd>{feed.summary.total}</dd>
           </div>
           <div>
-            <dt>Next match</dt>
-            <dd>{summary.nextMatchNumber ? `#${summary.nextMatchNumber}` : "TBD"}</dd>
+            <dt>Next</dt>
+            <dd>{feed.summary.nextTitle || "TBD"}</dd>
           </div>
         </dl>
       </section>
 
       <section className="panel-section pitch-card">
         <Shield aria-hidden="true" />
-        <h2>World Cup Mode</h2>
-        <p>Live scores, empty knockout slots, and future kickoff times update automatically from FIFA's 2026 match calendar.</p>
+        <h2>{feed.sport.label} Mode</h2>
+        <p>{feed.error || `${feed.sport.name} refreshes automatically every minute from ${feed.sport.source}.`}</p>
       </section>
     </aside>
   );
@@ -513,22 +623,22 @@ function LoadingScreen() {
   return (
     <main className="loading-screen">
       <div className="loading-ball" aria-hidden="true" />
-      <h1>Loading FIFA match center</h1>
-      <p>Building the live World Cup bracket from FIFA's public API.</p>
+      <h1>Loading BRNDN Sports Tracker</h1>
+      <p>Checking NFL, MLB, NHL, NBA, FIFA, MLS, Tennis and Golf feeds.</p>
     </main>
   );
 }
 
 function App() {
-  const { matches, lastUpdated, nextRefreshAt, error, loading, refreshing, refresh } = useFifaMatches();
-  const now = useMemo(() => new Date(), [lastUpdated]);
-  const rounds = useMemo(() => buildKnockoutRounds(matches), [matches]);
-  const todayMatches = useMemo(() => getTodayMatches(matches, now), [matches, now]);
-  const liveMatches = useMemo(() => getLiveMatches(matches), [matches]);
-  const nextMatches = useMemo(() => getNextMatches(matches, now, 4), [matches, now]);
-  const summary = useMemo(() => summarizeTournament(matches, now), [matches, now]);
+  const { feeds, lastUpdated, nextRefreshAt, refreshing, refresh } = useSportsFeeds();
+  const [activeSportId, setActiveSportId] = useState(DEFAULT_SPORT_ID);
+  const activeSport = sportById(activeSportId);
+  const activeFeed = feeds[activeSportId] || emptyFeed(activeSport);
+  const rounds = useMemo(() => buildKnockoutRounds(activeFeed.events), [activeFeed.events]);
+  const loading = Object.values(feeds).every((feed) => feed.loading);
+  const errorCount = Object.values(feeds).filter((feed) => feed.error).length;
 
-  if (loading && matches.length === 0) return <LoadingScreen />;
+  if (loading) return <LoadingScreen />;
 
   return (
     <div className="app">
@@ -539,26 +649,27 @@ function App() {
         onRefresh={refresh}
       />
 
-      {error ? (
+      {errorCount ? (
         <div className="error-banner" role="status">
           <AlertTriangle aria-hidden="true" />
-          <span>{error}. Showing the last successful bracket if available.</span>
+          <span>{errorCount} sports feed{errorCount === 1 ? "" : "s"} failed to refresh. Last successful data remains visible where available.</span>
         </div>
       ) : null}
 
       <main className="dashboard-layout">
-        <LiveCommandCenter liveMatches={liveMatches} nextMatches={nextMatches} summary={summary} />
+        <SportsTabs activeSportId={activeSportId} feeds={feeds} onSelect={setActiveSportId} />
+        <LiveCommandCenter feed={activeFeed} allFeeds={feeds} />
 
-        <section className="scoreboard-strip" aria-label="Tournament summary">
-          <StatCard icon={Trophy} label="Matches" value={summary.total} tone="gold" />
-          <StatCard icon={CheckCircle2} label="Completed" value={summary.completed} tone="emerald" />
-          <StatCard icon={Zap} label="Live" value={summary.live} tone="red" />
-          <StatCard icon={Clock3} label="Upcoming" value={summary.upcoming} tone="blue" />
+        <section className="scoreboard-strip" aria-label={`${activeFeed.sport.label} summary`}>
+          <StatCard icon={Trophy} label="Events" value={activeFeed.summary.total} tone="gold" />
+          <StatCard icon={Zap} label="Live" value={activeFeed.summary.live} tone="red" />
+          <StatCard icon={CheckCircle2} label="Completed" value={activeFeed.summary.completed} tone="emerald" />
+          <StatCard icon={Clock3} label="Upcoming" value={activeFeed.summary.upcoming} tone="blue" />
         </section>
 
         <div className="main-grid">
-          <BracketBoard rounds={rounds} />
-          <TodayPanel matches={todayMatches} summary={summary} liveMatches={liveMatches} nextMatches={nextMatches} />
+          {activeFeed.sport.id === "fifa" ? <BracketBoard rounds={rounds} /> : <EventGrid feed={activeFeed} />}
+          <InfoPanel feed={activeFeed} />
         </div>
       </main>
     </div>
@@ -566,6 +677,6 @@ function App() {
 }
 
 const rootElement = document.getElementById("root");
-const root = rootElement.__worldCupRoot || createRoot(rootElement);
-rootElement.__worldCupRoot = root;
+const root = rootElement.__sportsRoot || createRoot(rootElement);
+rootElement.__sportsRoot = root;
 root.render(<App />);
