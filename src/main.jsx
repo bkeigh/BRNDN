@@ -649,16 +649,17 @@ function CommandTeam({ team, score, side, winner }) {
   );
 }
 
-function LiveCommandCenter({ feed, allFeeds, onSelect }) {
+function LiveCommandCenter({ feed, onSelect }) {
   const activeLive = getLiveMatches(feed.events);
-  const activeNext = getNextMatches(feed.events, new Date(), 3);
+  const activeNext = getNextMatches(feed.events, new Date(), 5);
   const featured = activeLive[0] || activeNext[0] || feed.events[0] || null;
   const isLive = featured?.status === "live";
-  const globalQueue = SPORTS.flatMap((sport) => getLiveMatches(allFeeds[sport.id]?.events || []).slice(0, 2))
-    .sort((a, b) => new Date(a.date) - new Date(b.date))
+  // Sport-specific queue: this sport's other live games, then its upcoming games.
+  const queue = [...activeLive, ...activeNext]
+    .filter((event) => event.id !== featured?.id)
+    .filter((event, index, arr) => arr.findIndex((e) => e.id === event.id) === index)
     .slice(0, 3);
-  const fallbackQueue = activeNext.filter((event) => event.id !== featured?.id).slice(0, 3);
-  const queue = globalQueue.length ? globalQueue : fallbackQueue;
+  const queueHasLive = queue.some((event) => event.status === "live");
 
   return (
     <section className={`live-command ${isLive ? "is-live" : ""}`} aria-label="Live sports command center">
@@ -703,21 +704,23 @@ function LiveCommandCenter({ feed, allFeeds, onSelect }) {
         </button>
       ) : null}
 
-      <div className="live-queue" aria-label="Cross-sport live queue">
-        <span className="queue-head">
-          <Sparkles aria-hidden="true" />
-          {globalQueue.length ? "Live across sports" : "Upcoming in this sport"}
-        </span>
-        {queue.map((event) => (
-          <button className="queue-item" key={event.id} type="button" onClick={() => onSelect(event)}>
-            <span className="q-sport" aria-hidden="true">{themeFor(event.sportId).icon}</span>
-            <span className="q-title">{event.title}</span>
-            <span className={`q-state ${event.status === "live" ? "live" : ""}`}>
-              {event.status === "live" ? event.clockLabel : formatShortKickoff(event.date)}
-            </span>
-          </button>
-        ))}
-      </div>
+      {queue.length ? (
+        <div className="live-queue" aria-label={`More ${feed.sport.label} games`}>
+          <span className="queue-head">
+            <Sparkles aria-hidden="true" />
+            {queueHasLive ? `More ${feed.sport.label} live` : `Up next in ${feed.sport.label}`}
+          </span>
+          {queue.map((event) => (
+            <button className="queue-item" key={event.id} type="button" onClick={() => onSelect(event)}>
+              <span className="q-sport" aria-hidden="true">{themeFor(event.sportId).icon}</span>
+              <span className="q-title">{event.title}</span>
+              <span className={`q-state ${event.status === "live" ? "live" : ""}`}>
+                {event.status === "live" ? event.clockLabel : formatShortKickoff(event.date)}
+              </span>
+            </button>
+          ))}
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -801,9 +804,22 @@ function MatchCard({ match, roundIndex = 0, isLastRound = false, variant = "", o
 function buildPyramidGeometry(rounds) {
   const mainRounds = rounds.filter((round) => round.label !== THIRD_PLACE_LABEL);
   const placementRound = rounds.find((round) => round.label === THIRD_PLACE_LABEL);
+  // Guard: if only a third-place round exists, there are no lanes to lay out.
+  if (!mainRounds.length) {
+    return {
+      placementMatch: placementRound?.matches?.[0] || null,
+      lanes: [],
+      connectorPaths: [],
+      height: BRACKET_TOP * 2 + CARD_HEIGHT,
+      width: CARD_WIDTH + 46,
+      finalCard: null,
+      thirdPlaceTop: null,
+    };
+  }
   const maxMatches = Math.max(...mainRounds.map((round) => round.matches.length), 1);
   let height = BRACKET_TOP * 2 + (maxMatches - 1) * BRACKET_STEP + CARD_HEIGHT;
-  const width = (mainRounds.length - 1) * LANE_WIDTH + CARD_WIDTH;
+  // Buffer on the right so the Final card's glow has room and isn't clipped at the board edge.
+  const width = (mainRounds.length - 1) * LANE_WIDTH + CARD_WIDTH + 46;
   const lanes = mainRounds.map((round, roundIndex) => {
     const multiplier = 2 ** roundIndex;
     return {
@@ -1889,7 +1905,10 @@ function App() {
   const [activeSportId, setActiveSportId] = useState(DEFAULT_SPORT_ID);
   const [selectedRef, setSelectedRef] = useState(null);
   const [navOpen, setNavOpen] = useState(false);
-  const [bracketOpen, setBracketOpen] = useState(true);
+  // Bracket takes a lot of space — start collapsed on phones, open on desktop.
+  const [bracketOpen, setBracketOpen] = useState(() =>
+    typeof window === "undefined" ? true : window.innerWidth > 840,
+  );
   const activeSport = sportById(activeSportId);
   const activeFeed = feeds[activeSportId] || emptyFeed(activeSport);
   const rounds = useMemo(() => buildKnockoutRounds(activeFeed.events), [activeFeed.events]);
@@ -1964,7 +1983,7 @@ function App() {
         <SportsTabs activeSportId={activeSportId} feeds={feeds} onSelect={setActiveSportId} />
 
         <div className="sport-content" key={activeSportId}>
-          <LiveCommandCenter feed={activeFeed} allFeeds={feeds} onSelect={selectEvent} />
+          <LiveCommandCenter feed={activeFeed} onSelect={selectEvent} />
 
           <section className="scoreboard-strip" aria-label={`${activeFeed.sport.label} summary`}>
             <StatCard icon={Trophy} label="Events" value={activeFeed.summary.total} tone="gold" />
