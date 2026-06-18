@@ -293,6 +293,31 @@ function scoreFromLinescores(linescores) {
   return values.length ? values.join(" ") : null;
 }
 
+function teamRecord(competitor) {
+  const records = competitor?.records || competitor?.record;
+  if (!Array.isArray(records)) return null;
+  const overall = records.find((entry) => entry?.type === "total" || entry?.name === "overall") || records[0];
+  return overall?.summary || null;
+}
+
+function simplifyLeaders(competitor) {
+  const groups = Array.isArray(competitor?.leaders) ? competitor.leaders : [];
+  return groups
+    .map((group) => {
+      const top = group?.leaders?.[0];
+      if (!top) return null;
+      const athlete = top.athlete || {};
+      return {
+        category: group.shortDisplayName || group.abbreviation || group.displayName || group.name || "Leader",
+        athlete: athlete.shortName || athlete.displayName || athlete.fullName || "—",
+        value: top.displayValue ?? "",
+        headshot: athlete.headshot?.href || athlete.headshot || null,
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 5);
+}
+
 function normalizeEspnCompetitor(competitor, fallbackLabel) {
   const entity = competitor?.team || competitor?.athlete || competitor?.roster || {};
   const displayName =
@@ -319,6 +344,8 @@ function normalizeEspnCompetitor(competitor, fallbackLabel) {
     abbreviation,
     flagUrl: firstLogo(entity),
     score,
+    record: teamRecord(competitor),
+    leaders: simplifyLeaders(competitor),
     homeAway: competitor?.homeAway || null,
     winner: Boolean(competitor?.winner),
     order: Number.isFinite(Number(competitor?.order)) ? Number(competitor.order) : 99,
@@ -396,6 +423,7 @@ export function normalizeEspnScoreboard(response, sport, options = {}) {
 
       return {
         id: eventId(sport, event, competition, index),
+        eventRefId: event?.id || competition?.id || null,
         sportId: sport.id,
         sportLabel: sport.label,
         source: sport.source,
@@ -503,3 +531,336 @@ export function summarizeEvents(matches, now = new Date()) {
 }
 
 export const summarizeTournament = summarizeEvents;
+
+/* ─────────────────────────── Deep data (news + game detail) ─────────────────────────── */
+
+// Derive the ESPN base path (sport/league) from a sport's scoreboard URL.
+function espnBasePath(sport) {
+  const url = sport?.apiUrls?.find((u) => u.includes("site.api.espn.com"));
+  if (!url) return null;
+  const match = url.match(/\/sports\/([^/]+)\/([^/]+)\/scoreboard/);
+  return match ? `${match[1]}/${match[2]}` : null;
+}
+
+export function newsUrlForSport(sport) {
+  if (sport?.id === "fifa") {
+    return "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/news";
+  }
+  const base = espnBasePath(sport);
+  return base ? `https://site.api.espn.com/apis/site/v2/sports/${base}/news` : null;
+}
+
+export function summaryUrlForEvent(sport, eventRefId) {
+  if (!eventRefId || sport?.type !== "espn") return null;
+  const base = espnBasePath(sport);
+  return base
+    ? `https://site.api.espn.com/apis/site/v2/sports/${base}/summary?event=${eventRefId}`
+    : null;
+}
+
+export function normalizeNews(payload, limit = 8) {
+  const articles = Array.isArray(payload?.articles) ? payload.articles : [];
+  return articles
+    .map((article) => {
+      const image = Array.isArray(article.images) ? article.images.find((img) => img?.url) : null;
+      return {
+        id: article.id || article.headline,
+        headline: article.headline || "Untitled",
+        description: article.description || "",
+        published: article.published || article.lastModified || null,
+        link: article.links?.web?.href || article.links?.mobile?.href || null,
+        image: image?.url || null,
+      };
+    })
+    .filter((article) => article.headline)
+    .slice(0, limit);
+}
+
+// American moneyline → implied probability (0..1).
+function impliedProbFromMoneyline(moneyLine) {
+  const ml = Number(moneyLine);
+  if (!Number.isFinite(ml) || ml === 0) return null;
+  return ml < 0 ? -ml / (-ml + 100) : 100 / (ml + 100);
+}
+
+function recordWinPct(record) {
+  if (!record) return null;
+  const parts = String(record).split("-").map((n) => Number(n));
+  const [wins, losses] = parts;
+  if (!Number.isFinite(wins) || !Number.isFinite(losses) || wins + losses === 0) return null;
+  return wins / (wins + losses);
+}
+
+function pickWinProbability(summary, event) {
+  const predictor = summary?.predictor;
+  if (predictor?.homeTeam?.gameProjection && predictor?.awayTeam?.gameProjection) {
+    return {
+      source: predictor.header || "Matchup Predictor",
+      homePct: Math.round(Number(predictor.homeTeam.gameProjection)),
+      awayPct: Math.round(Number(predictor.awayTeam.gameProjection)),
+    };
+  }
+
+  const odds = summary?.pickcenter?.[0] || summary?.odds?.[0];
+  const homeMl = impliedProbFromMoneyline(odds?.homeTeamOdds?.moneyLine);
+  const awayMl = impliedProbFromMoneyline(odds?.awayTeamOdds?.moneyLine);
+  if (homeMl !== null && awayMl !== null) {
+    const total = homeMl + awayMl;
+    return {
+      source: "Implied from odds",
+      homePct: Math.round((homeMl / total) * 100),
+      awayPct: Math.round((awayMl / total) * 100),
+    };
+  }
+
+  const homePct = recordWinPct(event?.home?.record);
+  const awayPct = recordWinPct(event?.away?.record);
+  if (homePct !== null && awayPct !== null) {
+    const total = homePct + awayPct || 1;
+    return {
+      source: "Based on season record",
+      homePct: Math.round((homePct / total) * 100),
+      awayPct: Math.round((awayPct / total) * 100),
+    };
+  }
+
+  return null;
+}
+
+// Prioritize widely-understood stats first, then fill with whatever remains.
+const PRIORITY_STATS = new Set([
+  "totalYards", "yardsPerPlay", "possessionTime", "turnovers", "firstDowns", "totalPenaltiesYards",
+  "thirdDownEff", "completionAttempts", "sacksYardsLost", "rushingYards", "netPassingYards",
+  "points", "fieldGoalPct", "threePointFieldGoalPct", "freeThrowPct", "rebounds", "assists",
+  "steals", "blocks", "fastBreakPoints", "pointsInPaint", "fieldGoalsMade-fieldGoalsAttempted",
+  "hits", "runs", "errors", "RBIs", "homeRuns", "battingAvg", "strikeouts", "walks",
+  "shotsTotal", "shotsOnTarget", "possessionPct", "foulsCommitted", "wonCorners", "saves",
+  "goals", "powerPlayPct", "penaltyMinutes", "faceoffsWon",
+]);
+
+function flattenTeamStats(team) {
+  const out = {};
+  (team?.statistics || []).forEach((stat) => {
+    if (Array.isArray(stat.stats)) {
+      stat.stats.forEach((entry) => {
+        out[entry.name] = {
+          label: entry.shortDisplayName || entry.abbreviation || entry.displayName || entry.name,
+          value: entry.displayValue,
+        };
+      });
+    } else {
+      out[stat.name] = {
+        label: stat.label || stat.shortDisplayName || stat.abbreviation || stat.displayName || stat.name,
+        value: stat.displayValue,
+      };
+    }
+  });
+  return out;
+}
+
+function buildTeamStats(summary) {
+  const teams = summary?.boxscore?.teams;
+  if (!Array.isArray(teams) || teams.length < 2) return [];
+  const homeTeam = teams.find((t) => t.homeAway === "home") || teams[1];
+  const awayTeam = teams.find((t) => t.homeAway === "away") || teams[0];
+  const home = flattenTeamStats(homeTeam);
+  const away = flattenTeamStats(awayTeam);
+
+  const shared = Object.keys(home).filter((name) => name in away);
+  shared.sort((a, b) => Number(PRIORITY_STATS.has(b)) - Number(PRIORITY_STATS.has(a)));
+
+  return shared
+    .map((name) => ({ label: home[name].label, home: home[name].value, away: away[name].value }))
+    .filter((row) => row.home !== undefined && row.away !== undefined && row.home !== "" && row.away !== "")
+    .slice(0, 9);
+}
+
+function buildInjuries(summary) {
+  const groups = Array.isArray(summary?.injuries) ? summary.injuries : [];
+  return groups
+    .map((group) => ({
+      teamAbbr: group.team?.abbreviation || group.team?.displayName || "",
+      teamName: group.team?.displayName || "",
+      players: (group.injuries || [])
+        .map((injury) => ({
+          name: injury.athlete?.displayName || injury.athlete?.shortName || "Unknown",
+          position: injury.athlete?.position?.abbreviation || "",
+          status: injury.status || injury.type?.description || "Out",
+        }))
+        .slice(0, 8),
+    }))
+    .filter((group) => group.players.length);
+}
+
+function buildOdds(summary) {
+  const odds = summary?.pickcenter?.[0] || summary?.odds?.[0];
+  if (!odds) return null;
+  return {
+    provider: odds.provider?.name || "Sportsbook",
+    details: odds.details || "",
+    spread: odds.spread ?? null,
+    overUnder: odds.overUnder ?? null,
+    overOdds: odds.overOdds ?? null,
+    underOdds: odds.underOdds ?? null,
+    homeMoneyLine: odds.homeTeamOdds?.moneyLine ?? null,
+    awayMoneyLine: odds.awayTeamOdds?.moneyLine ?? null,
+    favorite: odds.homeTeamOdds?.favorite ? "home" : odds.awayTeamOdds?.favorite ? "away" : null,
+  };
+}
+
+export function normalizeSummary(payload, event) {
+  return {
+    teamStats: buildTeamStats(payload),
+    injuries: buildInjuries(payload),
+    odds: buildOdds(payload),
+    winProbability: pickWinProbability(payload, event),
+    news: normalizeNews(payload?.news, 5),
+  };
+}
+
+// Just the odds slice — used by the cross-game Vegas board.
+export function extractOdds(payload, event) {
+  return buildOdds(payload);
+}
+
+/* ─────────────────────────── Standings + leaders (Stats Lab) ─────────────────────────── */
+
+const STANDINGS_SPORTS = new Set(["nfl", "mlb", "nhl", "nba", "mls", "fifa"]);
+const LEADERS_SPORTS = new Set(["nfl", "mlb", "nhl", "nba", "golf"]);
+const ODDS_SPORTS = new Set(["nfl", "mlb", "nhl", "nba", "mls"]);
+
+// ESPN sport/league path, including FIFA which has no scoreboard on site.api.
+function dataPath(sport) {
+  if (sport?.id === "fifa") return "soccer/fifa.world";
+  return espnBasePath(sport);
+}
+
+export function sportHasStandings(sport) {
+  return STANDINGS_SPORTS.has(sport?.id) && Boolean(dataPath(sport));
+}
+
+export function sportHasLeaders(sport) {
+  return LEADERS_SPORTS.has(sport?.id) && Boolean(dataPath(sport));
+}
+
+export function sportHasOddsBoard(sport) {
+  return ODDS_SPORTS.has(sport?.id);
+}
+
+export function standingsUrlForSport(sport) {
+  if (!sportHasStandings(sport)) return null;
+  return `https://site.api.espn.com/apis/v2/sports/${dataPath(sport)}/standings`;
+}
+
+export function leadersUrlForSport(sport) {
+  if (!sportHasLeaders(sport)) return null;
+  return `https://site.web.api.espn.com/apis/site/v3/sports/${dataPath(sport)}/leaders`;
+}
+
+function statByType(entry, type) {
+  const stat = (entry?.stats || []).find((item) => item?.type === type);
+  return stat || null;
+}
+
+export function normalizeStandings(payload, sportId) {
+  const isSoccer = sportId === "mls" || sportId === "fifa";
+  const children = Array.isArray(payload?.children) ? payload.children : [];
+
+  return children
+    .map((child) => {
+      const entries = child?.standings?.entries || [];
+      const teams = entries
+        .map((entry) => {
+          const wins = statByType(entry, "wins");
+          const losses = statByType(entry, "losses");
+          const ties = statByType(entry, "ties");
+          const winPct = statByType(entry, "winpercent");
+          const points = statByType(entry, "points");
+          const streak = statByType(entry, "streak");
+          const gamesPlayed = statByType(entry, "gamesplayed");
+          return {
+            name: entry.team?.shortDisplayName || entry.team?.displayName || entry.team?.name || "—",
+            abbr: entry.team?.abbreviation || "",
+            logo: entry.team?.logos?.[0]?.href || null,
+            wins: wins ? Math.round(wins.value) : null,
+            losses: losses ? Math.round(losses.value) : null,
+            ties: ties ? Math.round(ties.value) : null,
+            winPct: winPct ? winPct.value : null,
+            points: points ? Math.round(points.value) : null,
+            streak: streak ? streak.displayValue : null,
+            gamesPlayed: gamesPlayed ? Math.round(gamesPlayed.value) : null,
+          };
+        })
+        .sort((a, b) =>
+          isSoccer ? (b.points ?? -1) - (a.points ?? -1) : (b.winPct ?? -1) - (a.winPct ?? -1),
+        );
+
+      return {
+        groupName: child.name || child.shortName || child.abbreviation || "Standings",
+        isSoccer,
+        teams,
+      };
+    })
+    .filter((group) => group.teams.length);
+}
+
+export function recordLabel(team, isSoccer) {
+  if (isSoccer) {
+    const wlt = [team.wins, team.losses, team.ties].every((v) => v !== null)
+      ? `${team.wins}-${team.losses}-${team.ties}`
+      : "—";
+    return team.points !== null ? `${team.points} pts · ${wlt}` : wlt;
+  }
+  if (team.wins === null || team.losses === null) return "—";
+  return team.ties ? `${team.wins}-${team.losses}-${team.ties}` : `${team.wins}-${team.losses}`;
+}
+
+export function normalizeLeaders(payload, maxCategories = 10, perCategory = 3) {
+  const categories = payload?.leaders?.categories;
+  if (!Array.isArray(categories)) return [];
+
+  return categories
+    .filter((category) => Array.isArray(category.leaders) && category.leaders.length)
+    .slice(0, maxCategories)
+    .map((category) => ({
+      category: category.displayName || category.name || "Leaders",
+      leaders: category.leaders.slice(0, perCategory).map((leader) => ({
+        athlete: leader.athlete?.displayName || leader.athlete?.fullName || "—",
+        team: leader.team?.abbreviation || "",
+        value: leader.displayValue ?? "",
+        headshot: leader.athlete?.headshot?.href || leader.athlete?.headshot || null,
+      })),
+    }));
+}
+
+// External "stats nerd" reference sites per sport (verified canonical URLs).
+export const STATS_REFERENCE_LINKS = {
+  nfl: [
+    { siteName: "Pro Football Reference", url: "https://www.pro-football-reference.com/", note: "WAR-adjacent metrics, air yards, EPA" },
+    { siteName: "PFR Advanced Stats", url: "https://www.pro-football-reference.com/years/2025/advanced.htm", note: "Charting & advanced splits" },
+  ],
+  mlb: [
+    { siteName: "Baseball Reference", url: "https://www.baseball-reference.com/", note: "WAR, OPS+, FIP, full splits" },
+  ],
+  nhl: [
+    { siteName: "Hockey Reference", url: "https://www.hockey-reference.com/", note: "Corsi, xG, on-ice metrics" },
+  ],
+  nba: [
+    { siteName: "Basketball Reference", url: "https://www.basketball-reference.com/", note: "PER, BPM, VORP, four factors" },
+    { siteName: "NBA.com Stats", url: "https://www.nba.com/stats", note: "Tracking & hustle data" },
+  ],
+  mls: [
+    { siteName: "FBref — MLS", url: "https://fbref.com/en/comps/22/Major-League-Soccer-Stats", note: "xG, xA, progressive actions" },
+  ],
+  tennis: [
+    { siteName: "Tennis Abstract", url: "https://www.tennisabstract.com/", note: "Elo, serve/return splits, H2H" },
+    { siteName: "ATP Leaderboards", url: "https://www.atptour.com/en/stats/leaderboard", note: "Official serve/return ratings" },
+  ],
+  golf: [
+    { siteName: "PGA TOUR Stats", url: "https://www.pgatour.com/stats", note: "Strokes Gained categories" },
+    { siteName: "Data Golf", url: "https://datagolf.com/", note: "Predictive SG models & skill ratings" },
+  ],
+  fifa: [
+    { siteName: "FBref — World Cup", url: "https://fbref.com/en/comps/1/World-Cup-Stats", note: "xG, xA, tournament history" },
+  ],
+};

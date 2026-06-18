@@ -1,42 +1,122 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   Activity,
   AlertTriangle,
+  ArrowRight,
+  BarChart3,
   CalendarDays,
   CheckCircle2,
+  ChevronDown,
   Clock3,
+  Crown,
+  DollarSign,
+  ExternalLink,
+  FlaskConical,
+  HeartPulse,
+  Home,
+  LayoutGrid,
+  Link2,
+  ListOrdered,
   MapPin,
+  Newspaper,
+  Percent,
   Radio,
   RefreshCw,
   Shield,
   Sparkles,
   Trophy,
-  Wifi,
+  Users,
+  X,
   Zap,
 } from "lucide-react";
 import {
   SPORTS,
+  STATS_REFERENCE_LINKS,
   buildKnockoutRounds,
   compareEventsForDisplay,
   getLiveMatches,
   getNextMatches,
   getTodayMatches,
+  leadersUrlForSport,
+  newsUrlForSport,
   normalizeEspnScoreboard,
   normalizeFifaMatches,
+  normalizeLeaders,
+  normalizeNews,
+  normalizeStandings,
+  normalizeSummary,
+  recordLabel,
   sportById,
+  sportHasLeaders,
+  sportHasOddsBoard,
+  sportHasStandings,
+  standingsUrlForSport,
   summarizeEvents,
+  summaryUrlForEvent,
 } from "./matchUtils.js";
 import "./styles.css";
 
 const REFRESH_INTERVAL_MS = 60_000;
 const DEFAULT_SPORT_ID = "fifa";
+const POPULAR_SPORTS = ["nfl", "nba", "mlb", "nhl", "fifa", "mls"];
 const THIRD_PLACE_LABEL = "Play-off for third place";
 const CARD_WIDTH = 214;
 const CARD_HEIGHT = 166;
-const LANE_WIDTH = 252;
-const BRACKET_STEP = 178;
-const BRACKET_TOP = 76;
+const LANE_WIDTH = 256;
+const BRACKET_STEP = 184;
+const BRACKET_TOP = 84;
+const THIRD_PLACE_GAP = 52;
+
+// Visual metadata per sport: glyph + accent color drives the live theme.
+// Accents are spread around the hue wheel so no two sports read as the same color.
+const SPORT_THEME = {
+  nfl: { icon: "🏈", accent: "#ff4d4d", accent2: "#ff8a6b" }, // red
+  nba: { icon: "🏀", accent: "#ff8a3d", accent2: "#ffc06b" }, // basketball orange
+  golf: { icon: "⛳", accent: "#f5b62e", accent2: "#ffd877" }, // fairway gold
+  tennis: { icon: "🎾", accent: "#c9f24a", accent2: "#e4ff86" }, // ball lime
+  fifa: { icon: "⚽", accent: "#2fe28b", accent2: "#7af0bb" }, // pitch green
+  mls: { icon: "🥅", accent: "#16d6c1", accent2: "#69f0e2" }, // teal
+  nhl: { icon: "🏒", accent: "#58c7ef", accent2: "#a5e7ff" }, // ice cyan
+  mlb: { icon: "⚾", accent: "#5a8dff", accent2: "#8fb6ff" }, // royal blue
+};
+
+const LANDING_ACCENT = { accent: "#5ad9ff", accent2: "#ffd15f" };
+
+const summaryCache = new Map();
+const newsCache = new Map();
+const standingsCache = new Map();
+const leadersCache = new Map();
+
+function themeFor(sportId) {
+  return SPORT_THEME[sportId] || SPORT_THEME.fifa;
+}
+
+function hexToRgb(hex) {
+  const clean = hex.replace("#", "");
+  const full = clean.length === 3 ? clean.split("").map((c) => c + c).join("") : clean;
+  const value = parseInt(full, 16);
+  return [(value >> 16) & 255, (value >> 8) & 255, value & 255];
+}
+
+function rgba(hex, alpha) {
+  const [r, g, b] = hexToRgb(hex);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+function accentVarsFrom(accent, accent2) {
+  return {
+    "--accent": accent,
+    "--accent-2": accent2,
+    "--accent-soft": rgba(accent, 0.16),
+    "--accent-glow": rgba(accent, 0.4),
+  };
+}
+
+function accentVars(sportId) {
+  const theme = themeFor(sportId);
+  return accentVarsFrom(theme.accent, theme.accent2);
+}
 
 function emptyFeed(sport) {
   return {
@@ -65,6 +145,17 @@ function formatShortKickoff(date) {
   }).format(new Date(date));
 }
 
+function formatRelative(date) {
+  if (!date) return "";
+  const diff = Date.now() - new Date(date).getTime();
+  const mins = Math.round(diff / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
+}
+
 function formatSeconds(ms) {
   return Math.max(0, Math.ceil(ms / 1000));
 }
@@ -73,8 +164,51 @@ function formatSourceCount(sport) {
   return sport.apiUrls.length === 1 ? "1 feed" : `${sport.apiUrls.length} feeds`;
 }
 
+function formatMoneyline(value) {
+  if (value === null || value === undefined) return "—";
+  return value > 0 ? `+${value}` : `${value}`;
+}
+
 function flagAlt(team) {
   return team.placeholder ? "" : `${team.name} logo`;
+}
+
+// Animated integer that eases from its previous value to the new one.
+function useCountUp(value, duration = 700) {
+  const [display, setDisplay] = useState(value);
+  const prev = useRef(value);
+
+  useEffect(() => {
+    const from = prev.current;
+    const to = Number(value) || 0;
+    if (from === to) return undefined;
+
+    if (typeof window === "undefined" || !window.requestAnimationFrame) {
+      prev.current = to;
+      setDisplay(to);
+      return undefined;
+    }
+
+    let raf;
+    const start = performance.now();
+    const tick = (t) => {
+      const p = Math.min(1, (t - start) / duration);
+      const eased = 1 - Math.pow(1 - p, 3);
+      const current = Math.round(from + (to - from) * eased);
+      // Track the live value so an interrupted animation resumes from where it stopped.
+      prev.current = current;
+      setDisplay(current);
+      if (p < 1) {
+        raf = window.requestAnimationFrame(tick);
+      } else {
+        prev.current = to;
+      }
+    };
+    raf = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(raf);
+  }, [value, duration]);
+
+  return display;
 }
 
 async function fetchJson(url) {
@@ -107,43 +241,50 @@ function useSportsFeeds() {
   const [lastUpdated, setLastUpdated] = useState(null);
   const [nextRefreshAt, setNextRefreshAt] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
+  const inFlight = useRef(false);
 
   const refresh = useCallback(async () => {
+    if (inFlight.current) return; // ignore overlapping manual + interval refreshes
+    inFlight.current = true;
     const fetchedAt = new Date();
     setRefreshing(true);
-    const results = await Promise.all(
-      SPORTS.map(async (sport) => {
-        try {
-          return { sportId: sport.id, feed: await loadSportFeed(sport, fetchedAt) };
-        } catch (error) {
-          return {
-            sportId: sport.id,
-            error: error instanceof Error ? error.message : `Could not load ${sport.label}`,
+    try {
+      const results = await Promise.all(
+        SPORTS.map(async (sport) => {
+          try {
+            return { sportId: sport.id, feed: await loadSportFeed(sport, fetchedAt) };
+          } catch (error) {
+            return {
+              sportId: sport.id,
+              error: error instanceof Error ? error.message : `Could not load ${sport.label}`,
+            };
+          }
+        }),
+      );
+
+      setFeeds((currentFeeds) => {
+        const nextFeeds = { ...currentFeeds };
+        results.forEach((result) => {
+          if (result.feed) {
+            nextFeeds[result.sportId] = result.feed;
+            return;
+          }
+
+          nextFeeds[result.sportId] = {
+            ...currentFeeds[result.sportId],
+            loading: false,
+            error: result.error,
+            lastUpdated: fetchedAt,
           };
-        }
-      }),
-    );
-
-    setFeeds((currentFeeds) => {
-      const nextFeeds = { ...currentFeeds };
-      results.forEach((result) => {
-        if (result.feed) {
-          nextFeeds[result.sportId] = result.feed;
-          return;
-        }
-
-        nextFeeds[result.sportId] = {
-          ...currentFeeds[result.sportId],
-          loading: false,
-          error: result.error,
-          lastUpdated: fetchedAt,
-        };
+        });
+        return nextFeeds;
       });
-      return nextFeeds;
-    });
-    setLastUpdated(fetchedAt);
-    setNextRefreshAt(new Date(Date.now() + REFRESH_INTERVAL_MS));
-    setRefreshing(false);
+      setLastUpdated(fetchedAt);
+      setNextRefreshAt(new Date(Date.now() + REFRESH_INTERVAL_MS));
+    } finally {
+      setRefreshing(false);
+      inFlight.current = false;
+    }
   }, []);
 
   useEffect(() => {
@@ -155,17 +296,139 @@ function useSportsFeeds() {
   return { feeds, lastUpdated, nextRefreshAt, refreshing, refresh };
 }
 
-function StatCard({ icon: Icon, label, value, tone }) {
+// Generic lazy + cached JSON fetcher keyed by sport, with a normalizer.
+function useCachedSportData(sport, urlFor, normalize, cache, emptyValue) {
+  const [state, setState] = useState({ loading: true, data: emptyValue });
+
+  useEffect(() => {
+    let cancelled = false;
+    const url = urlFor(sport);
+    if (!url) {
+      setState({ loading: false, data: emptyValue });
+      return undefined;
+    }
+    if (cache.has(sport.id)) {
+      setState({ loading: false, data: cache.get(sport.id) });
+      return undefined;
+    }
+    setState({ loading: true, data: emptyValue });
+    fetchJson(url)
+      .then((payload) => {
+        if (cancelled) return;
+        const data = normalize(payload, sport.id);
+        cache.set(sport.id, data);
+        setState({ loading: false, data });
+      })
+      .catch(() => {
+        if (!cancelled) setState({ loading: false, data: emptyValue });
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sport.id]);
+
+  return state;
+}
+
+// Lazy, cached deep stats for a single game (ESPN summary endpoint).
+function useGameDetail(event) {
+  const [state, setState] = useState({ loading: false, data: null, error: null });
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!event) {
+      setState({ loading: false, data: null, error: null });
+      return undefined;
+    }
+    const sport = sportById(event.sportId);
+    const url = summaryUrlForEvent(sport, event.eventRefId);
+    if (!url) {
+      setState({ loading: false, data: null, error: "unsupported" });
+      return undefined;
+    }
+    if (summaryCache.has(event.id)) {
+      setState({ loading: false, data: summaryCache.get(event.id), error: null });
+      return undefined;
+    }
+    setState({ loading: true, data: null, error: null });
+    fetchJson(url)
+      .then((payload) => {
+        if (cancelled) return;
+        const data = normalizeSummary(payload, event);
+        summaryCache.set(event.id, data);
+        setState({ loading: false, data, error: null });
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setState({ loading: false, data: null, error: error.message || "Failed to load" });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [event]);
+
+  return state;
+}
+
+// Fetch odds for a small set of games (cross-game Vegas board), cached via summaryCache.
+function useOddsBoard(events) {
+  const ids = events.map((event) => event.id).join(",");
+  const [state, setState] = useState({ loading: true, rows: [] });
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!events.length) {
+      setState({ loading: false, rows: [] });
+      return undefined;
+    }
+    setState({ loading: true, rows: [] });
+    Promise.all(
+      events.map(async (event) => {
+        const sport = sportById(event.sportId);
+        const url = summaryUrlForEvent(sport, event.eventRefId);
+        if (!url) return null;
+        try {
+          let data;
+          if (summaryCache.has(event.id)) {
+            data = summaryCache.get(event.id);
+          } else {
+            const payload = await fetchJson(url);
+            data = normalizeSummary(payload, event);
+            summaryCache.set(event.id, data);
+          }
+          return data.odds ? { event, odds: data.odds } : null;
+        } catch {
+          return null;
+        }
+      }),
+    ).then((rows) => {
+      if (cancelled) return;
+      setState({ loading: false, rows: rows.filter(Boolean) });
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ids]);
+
+  return state;
+}
+
+function StatCard({ icon: Icon, label, value, tone, hasLive }) {
+  const animated = useCountUp(value);
   return (
-    <div className={`stat-card ${tone}`}>
-      <Icon aria-hidden="true" />
+    <div className={`stat-card ${tone} ${hasLive ? "has-live" : ""}`}>
+      <span className="stat-icon">
+        <Icon aria-hidden="true" />
+      </span>
       <span>{label}</span>
-      <strong>{value}</strong>
+      <strong>{animated}</strong>
     </div>
   );
 }
 
-function Header({ refreshing, lastUpdated, nextRefreshAt, onRefresh }) {
+function Header({ refreshing, lastUpdated, nextRefreshAt, onRefresh, liveCount, onHome }) {
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -177,31 +440,90 @@ function Header({ refreshing, lastUpdated, nextRefreshAt, onRefresh }) {
 
   return (
     <header className="app-header">
-      <div className="brand-lockup">
+      <button className="brand-lockup brand-button" type="button" onClick={onHome} aria-label="Back to home">
         <div className="brand-mark" aria-hidden="true">
           <Trophy />
         </div>
-        <div>
-          <h1>BRNDN Sports Tracker</h1>
-          <p>NFL, MLB, NHL, NBA, FIFA, MLS, Tennis & Golf live data</p>
+        <div className="brand-text">
+          <h1>
+            BRNDN <span className="brand-accent">Sports</span> Tracker
+          </h1>
+          <p>NFL · MLB · NHL · NBA · FIFA · MLS · Tennis · Golf — live</p>
         </div>
-      </div>
+      </button>
 
       <div className="feed-controls" aria-label="Data refresh controls">
-        <div className="feed-chip">
-          <Wifi aria-hidden="true" />
-          <span>{lastUpdated ? "Updated just now" : "Connecting"}</span>
+        <div className="feed-chip live-dot-chip">
+          <span className="mini-dot" aria-hidden="true" />
+          <span>{liveCount ? `${liveCount} live now` : lastUpdated ? "All quiet" : "Connecting"}</span>
         </div>
-        <div className="feed-chip muted">
+        <div className="feed-chip muted refresh-meta">
           <Clock3 aria-hidden="true" />
-          <span>Auto refresh in {seconds}s</span>
+          <span>Refresh in {seconds}s</span>
         </div>
         <button className="refresh-button" onClick={onRefresh} type="button" disabled={refreshing}>
           <RefreshCw aria-hidden="true" className={refreshing ? "spin" : ""} />
-          <span>{refreshing ? "Refreshing" : "Refresh"}</span>
+          <span className="refresh-label">{refreshing ? "Refreshing" : "Refresh"}</span>
         </button>
       </div>
     </header>
+  );
+}
+
+function LiveTicker({ feeds, onSelect }) {
+  const now = new Date();
+  const live = SPORTS.flatMap((sport) => getLiveMatches(feeds[sport.id]?.events || []));
+  const upcoming = SPORTS.flatMap((sport) => getNextMatches(feeds[sport.id]?.events || [], now, 2));
+  const items = [...live, ...upcoming].slice(0, 20);
+
+  if (!items.length) return null;
+  const fewItems = items.length < 6;
+
+  const renderItem = (event, key, decorative) => {
+    const isLive = event.status === "live";
+    const theme = themeFor(event.sportId);
+    const showScore =
+      event.homeScore !== null && event.homeScore !== undefined && event.homeScore !== "";
+
+    return (
+      <button
+        className="ticker-item"
+        key={key}
+        type="button"
+        onClick={() => onSelect(event)}
+        aria-hidden={decorative ? "true" : undefined}
+        tabIndex={decorative ? -1 : undefined}
+      >
+        <span className="tk-sport" aria-hidden="true">{theme.icon}</span>
+        <span className="tk-name">
+          {event.home.shortName} v {event.away.shortName}
+        </span>
+        {showScore ? (
+          <span className="tk-score">
+            {event.homeScore}–{event.awayScore}
+          </span>
+        ) : null}
+        <span className={`tk-state ${isLive ? "" : "upcoming"}`}>
+          {isLive ? event.clockLabel : formatShortKickoff(event.date)}
+        </span>
+        <span className="tk-divider" aria-hidden="true" />
+      </button>
+    );
+  };
+
+  return (
+    <div className="ticker" aria-label="Live and upcoming scores across all sports">
+      <span className="ticker-label">
+        <Radio aria-hidden="true" />
+        {live.length ? "Live" : "Up Next"}
+      </span>
+      <div className="ticker-track-wrap">
+        <div className={`ticker-track ${fewItems ? "few" : ""}`}>
+          {items.map((event, index) => renderItem(event, `a-${event.id}-${index}`, false))}
+          {!fewItems && items.map((event, index) => renderItem(event, `b-${event.id}-${index}`, true))}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -211,6 +533,7 @@ function SportsTabs({ activeSportId, feeds, onSelect }) {
       {SPORTS.map((sport) => {
         const feed = feeds[sport.id] || emptyFeed(sport);
         const isActive = activeSportId === sport.id;
+        const theme = themeFor(sport.id);
 
         return (
           <button
@@ -220,10 +543,19 @@ function SportsTabs({ activeSportId, feeds, onSelect }) {
             onClick={() => onSelect(sport.id)}
             type="button"
             aria-pressed={isActive}
+            style={{ "--tab-accent": theme.accent }}
           >
+            <span className="tab-top">
+              <span className="tab-icon" aria-hidden="true">{theme.icon}</span>
+              {feed.summary.live ? (
+                <span className="tab-live">
+                  <span className="mini-dot" aria-hidden="true" />
+                  {feed.summary.live}
+                </span>
+              ) : null}
+            </span>
             <strong>{sport.label}</strong>
-            <span>{feed.error ? "Feed issue" : `${feed.summary.live} live`}</span>
-            <small>{feed.summary.total} events</small>
+            <small>{feed.error ? "Feed issue" : `${feed.summary.total} events`}</small>
           </button>
         );
       })}
@@ -231,9 +563,80 @@ function SportsTabs({ activeSportId, feeds, onSelect }) {
   );
 }
 
-function CommandTeam({ team, score }) {
+function SportsSheet({ open, activeSportId, feeds, onSelect, onClose }) {
   return (
-    <div className={`command-team ${team.placeholder ? "placeholder" : ""}`}>
+    <div className={`nav-drawer-root ${open ? "open" : ""}`} aria-hidden={!open}>
+      <div className="nav-scrim" onClick={onClose} />
+      <aside className="nav-drawer" aria-label="Sports menu">
+        <div className="nav-grip" aria-hidden="true" />
+        <div className="nav-drawer-head">
+          <strong>Choose a sport</strong>
+          <button className="icon-button" type="button" onClick={onClose} aria-label="Close menu">
+            <X aria-hidden="true" />
+          </button>
+        </div>
+        <div className="nav-drawer-list">
+          {SPORTS.map((sport) => {
+            const feed = feeds[sport.id] || emptyFeed(sport);
+            const theme = themeFor(sport.id);
+            const isActive = activeSportId === sport.id;
+            return (
+              <button
+                className={`nav-drawer-item ${isActive ? "active" : ""}`}
+                key={sport.id}
+                type="button"
+                style={{ "--tab-accent": theme.accent }}
+                onClick={() => {
+                  onSelect(sport.id);
+                  onClose();
+                }}
+              >
+                <span className="nav-icon" aria-hidden="true">{theme.icon}</span>
+                <span className="nav-label">
+                  <strong>{sport.label}</strong>
+                  <small>{feed.error ? "Feed issue" : `${feed.summary.total} events`}</small>
+                </span>
+                {feed.summary.live ? (
+                  <span className="tab-live">
+                    <span className="mini-dot" aria-hidden="true" />
+                    {feed.summary.live}
+                  </span>
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
+      </aside>
+    </div>
+  );
+}
+
+function BottomNav({ onHome, onTop, onMenu, onRefresh, refreshing }) {
+  return (
+    <nav className="bottom-nav" aria-label="Primary navigation">
+      <button type="button" onClick={onHome}>
+        <Home aria-hidden="true" />
+        <span>Home</span>
+      </button>
+      <button type="button" onClick={onTop}>
+        <Radio aria-hidden="true" />
+        <span>Live</span>
+      </button>
+      <button type="button" className="bn-primary" onClick={onMenu}>
+        <LayoutGrid aria-hidden="true" />
+        <span>Sports</span>
+      </button>
+      <button type="button" onClick={onRefresh}>
+        <RefreshCw aria-hidden="true" className={refreshing ? "spin" : ""} />
+        <span>Refresh</span>
+      </button>
+    </nav>
+  );
+}
+
+function CommandTeam({ team, score, side, winner }) {
+  return (
+    <div className={`command-team ${side} ${winner ? "winner" : ""} ${team.placeholder ? "placeholder" : ""}`}>
       {team.flagUrl ? (
         <img src={team.flagUrl} alt={flagAlt(team)} loading="lazy" />
       ) : (
@@ -242,12 +645,12 @@ function CommandTeam({ team, score }) {
         </span>
       )}
       <strong>{team.shortName}</strong>
-      <span>{score ?? "-"}</span>
+      <span className="cmd-score">{score ?? "-"}</span>
     </div>
   );
 }
 
-function LiveCommandCenter({ feed, allFeeds }) {
+function LiveCommandCenter({ feed, allFeeds, onSelect }) {
   const activeLive = getLiveMatches(feed.events);
   const activeNext = getNextMatches(feed.events, new Date(), 3);
   const featured = activeLive[0] || activeNext[0] || feed.events[0] || null;
@@ -261,41 +664,59 @@ function LiveCommandCenter({ feed, allFeeds }) {
   return (
     <section className={`live-command ${isLive ? "is-live" : ""}`} aria-label="Live sports command center">
       <div className="live-copy">
-        <div className="live-eyeline">
+        <span className="live-eyeline">
           {isLive ? <Radio aria-hidden="true" /> : <Clock3 aria-hidden="true" />}
-          <span>{isLive ? "Live Now" : "Next Up"} / {feed.sport.label}</span>
-        </div>
-        <h2 className="live-title">{featured ? featured.title : `${feed.sport.label} feed loading`}</h2>
+          {isLive ? "Live Now" : "Next Up"} · {feed.sport.label}
+        </span>
+        <h2>{featured ? featured.title : `${feed.sport.label} feed loading`}</h2>
         <p>
           {featured
-            ? `${featured.stage} - ${formatKickoff(featured.date)}${featured.city ? ` - ${featured.city}` : ""}`
+            ? `${featured.stage} · ${formatKickoff(featured.date)}${featured.city ? ` · ${featured.city}` : ""}`
             : `${feed.sport.source} has not returned events yet.`}
         </p>
+        {featured ? (
+          <button className="command-cta" type="button" onClick={() => onSelect(featured)}>
+            <BarChart3 aria-hidden="true" />
+            {isLive ? "Live stats & odds" : "Preview & odds"}
+          </button>
+        ) : null}
       </div>
 
       {featured ? (
-        <div className="live-scoreboard" aria-label={featured.title}>
-          <CommandTeam team={featured.home} score={featured.homeScore} />
+        <button className="live-scoreboard" type="button" onClick={() => onSelect(featured)} aria-label={`Open ${featured.title} details`}>
+          <CommandTeam team={featured.home} score={featured.homeScore} side="home" winner={featured.winnerSide === "home"} />
           <div className="command-clock">
-            <span className={isLive ? "pulse-dot live" : "pulse-dot"} />
-            <strong>{isLive ? featured.clockLabel : formatShortKickoff(featured.date)}</strong>
-            <small>{isLive ? featured.statusLabel : "kickoff"}</small>
+            {isLive ? (
+              <>
+                <span className="pulse-dot live" aria-hidden="true" />
+                <strong>{featured.clockLabel}</strong>
+                <small>{featured.statusLabel}</small>
+              </>
+            ) : (
+              <>
+                <span className="vs-mark">VS</span>
+                <strong>{formatShortKickoff(featured.date)}</strong>
+                <small>Kickoff</small>
+              </>
+            )}
           </div>
-          <CommandTeam team={featured.away} score={featured.awayScore} />
-        </div>
+          <CommandTeam team={featured.away} score={featured.awayScore} side="away" winner={featured.winnerSide === "away"} />
+        </button>
       ) : null}
 
       <div className="live-queue" aria-label="Cross-sport live queue">
-        <div>
+        <span className="queue-head">
           <Sparkles aria-hidden="true" />
-          <span>{globalQueue.length ? "Live across sports" : "Upcoming in this sport"}</span>
-        </div>
+          {globalQueue.length ? "Live across sports" : "Upcoming in this sport"}
+        </span>
         {queue.map((event) => (
-          <article key={event.id}>
-            <strong>{event.sportLabel}</strong>
-            <span>{event.title}</span>
-            <small>{event.status === "live" ? event.clockLabel : formatShortKickoff(event.date)}</small>
-          </article>
+          <button className="queue-item" key={event.id} type="button" onClick={() => onSelect(event)}>
+            <span className="q-sport" aria-hidden="true">{themeFor(event.sportId).icon}</span>
+            <span className="q-title">{event.title}</span>
+            <span className={`q-state ${event.status === "live" ? "live" : ""}`}>
+              {event.status === "live" ? event.clockLabel : formatShortKickoff(event.date)}
+            </span>
+          </button>
         ))}
       </div>
     </section>
@@ -315,7 +736,7 @@ function TeamRow({ team, score, penaltyScore, winner }) {
         )}
         <div>
           <span className="team-name">{team.name}</span>
-          <span className="team-code">{team.placeholder ? "Slot" : team.abbreviation}</span>
+          <span className="team-code">{team.placeholder ? "Slot" : team.record || team.abbreviation}</span>
         </div>
       </div>
       <div className="score-lockup">
@@ -326,15 +747,28 @@ function TeamRow({ team, score, penaltyScore, winner }) {
   );
 }
 
-function MatchCard({ match, roundIndex = 0, isLastRound = false, variant = "" }) {
+function MatchCard({ match, roundIndex = 0, isLastRound = false, variant = "", onSelect }) {
   const isLive = match.status === "live";
   const isDone = match.status === "completed";
   const metaLabel = match.matchNumber ? `#${match.matchNumber}` : match.sportLabel;
+  const clickable = Boolean(onSelect);
+
+  const handleKey = (event) => {
+    if (!clickable) return;
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      onSelect(match);
+    }
+  };
 
   return (
     <article
-      className={`match-card ${variant} ${match.status} round-${roundIndex} ${isLastRound ? "last-round" : ""} ${match.stage === "Final" ? "final-card" : ""}`}
+      className={`match-card ${variant} ${match.status} round-${roundIndex} ${isLastRound ? "last-round" : ""} ${match.stage === "Final" ? "final-card" : ""} ${clickable ? "clickable" : ""}`}
       aria-label={match.title}
+      role={clickable ? "button" : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onClick={clickable ? () => onSelect(match) : undefined}
+      onKeyDown={handleKey}
     >
       <div className="match-meta">
         <span>{metaLabel}</span>
@@ -369,7 +803,7 @@ function buildPyramidGeometry(rounds) {
   const mainRounds = rounds.filter((round) => round.label !== THIRD_PLACE_LABEL);
   const placementRound = rounds.find((round) => round.label === THIRD_PLACE_LABEL);
   const maxMatches = Math.max(...mainRounds.map((round) => round.matches.length), 1);
-  const height = BRACKET_TOP * 2 + (maxMatches - 1) * BRACKET_STEP + CARD_HEIGHT;
+  let height = BRACKET_TOP * 2 + (maxMatches - 1) * BRACKET_STEP + CARD_HEIGHT;
   const width = (mainRounds.length - 1) * LANE_WIDTH + CARD_WIDTH;
   const lanes = mainRounds.map((round, roundIndex) => {
     const multiplier = 2 ** roundIndex;
@@ -404,118 +838,151 @@ function buildPyramidGeometry(rounds) {
     }).filter(Boolean);
   });
 
+  const finalLane = lanes[lanes.length - 1];
+  const finalCard = finalLane?.cards?.[0];
+  let thirdPlaceTop = null;
+  if (placementRound?.matches?.[0] && finalCard) {
+    thirdPlaceTop = finalCard.y + CARD_HEIGHT + THIRD_PLACE_GAP;
+    height = Math.max(height, thirdPlaceTop + CARD_HEIGHT + BRACKET_TOP);
+  }
+
   return {
     placementMatch: placementRound?.matches?.[0] || null,
     lanes,
     connectorPaths,
     height,
     width,
+    finalCard,
+    thirdPlaceTop,
   };
 }
 
-function BracketBoard({ rounds }) {
-  if (rounds.length === 0) {
-    return (
-      <section className="empty-state">
-        <Trophy aria-hidden="true" />
-        <h2>FIFA bracket is loading</h2>
-        <p>The World Cup knockout board will fill when FIFA returns those matches.</p>
-      </section>
-    );
-  }
-
-  const geometry = buildPyramidGeometry(rounds);
-  const finalLane = geometry.lanes[geometry.lanes.length - 1];
-  const finalCard = finalLane?.cards?.[0];
+function BracketBoard({ rounds, open, onToggle, onSelect }) {
+  const hasRounds = rounds.length > 0;
+  const geometry = hasRounds ? buildPyramidGeometry(rounds) : null;
+  const totalMatches = rounds.reduce((sum, round) => sum + round.matches.length, 0);
 
   return (
     <section className="bracket-shell" aria-labelledby="bracket-title">
       <div className="section-heading">
         <div>
           <h2 id="bracket-title">FIFA World Cup Pyramid</h2>
-          <p>Knockout paths converge into the Final while the live tracker keeps every sport available above.</p>
+          <p>Knockout paths converge into the Final. Collapse the bracket to focus on live scores.</p>
         </div>
-        <span className="accent-rule" aria-hidden="true" />
+        <button className="collapse-toggle" type="button" onClick={onToggle} aria-expanded={open}>
+          <ChevronDown aria-hidden="true" className={open ? "rot-open" : "rot-closed"} />
+          {open ? "Hide" : "Show"} bracket
+        </button>
       </div>
 
-      <div className="bracket-scroll" role="region" aria-label="Scrollable FIFA World Cup pyramid bracket">
-        <div
-          className="pyramid-board"
-          style={{
-            "--board-width": `${geometry.width}px`,
-            "--board-height": `${geometry.height}px`,
-            "--card-width": `${CARD_WIDTH}px`,
-            "--card-height": `${CARD_HEIGHT}px`,
-          }}
-        >
-          <svg className="connector-layer" viewBox={`0 0 ${geometry.width} ${geometry.height}`} aria-hidden="true">
-            {geometry.connectorPaths.map((path) => (
-              <path key={path.key} d={path.d} />
-            ))}
-          </svg>
-
-          {geometry.lanes.map((lane) => (
-            <section
-              className={`bracket-lane lane-${lane.roundIndex} ${lane.roundIndex === geometry.lanes.length - 1 ? "final-lane" : ""}`}
-              key={lane.label}
-              style={{ left: lane.x }}
-              aria-labelledby={`round-${lane.roundIndex}`}
-            >
-              <div className="round-title">
-                <h3 className="round-label" id={`round-${lane.roundIndex}`}>{lane.label}</h3>
-                <span>{lane.matches.length} matches</span>
-              </div>
-              {lane.cards.map((card) => (
-                <div className="pyramid-card-slot" key={card.match.id} style={{ top: card.y }}>
-                  <MatchCard
-                    match={card.match}
-                    roundIndex={lane.roundIndex}
-                    isLastRound={lane.roundIndex === geometry.lanes.length - 1}
-                    variant="pyramid-card"
-                  />
-                </div>
+      {!hasRounds ? (
+        <div className="empty-state compact-empty">
+          <Trophy aria-hidden="true" />
+          <h2>FIFA bracket is loading</h2>
+          <p>The World Cup knockout board will fill when FIFA returns those matches.</p>
+        </div>
+      ) : open ? (
+        <>
+        <p className="bracket-hint">Swipe to explore the full bracket →</p>
+        <div className="bracket-scroll" role="region" aria-label="Scrollable FIFA World Cup pyramid bracket">
+          <div
+            className="pyramid-board"
+            style={{
+              "--board-width": `${geometry.width}px`,
+              "--board-height": `${geometry.height}px`,
+              "--card-width": `${CARD_WIDTH}px`,
+              "--card-height": `${CARD_HEIGHT}px`,
+            }}
+          >
+            <svg className="connector-layer" viewBox={`0 0 ${geometry.width} ${geometry.height}`} aria-hidden="true">
+              {geometry.connectorPaths.map((path) => (
+                <path key={path.key} d={path.d} />
               ))}
-            </section>
-          ))}
+            </svg>
 
-          {geometry.placementMatch && finalCard ? (
-            <aside
-              className="third-place-card"
-              style={{ left: finalCard.x, top: Math.min(finalCard.y + CARD_HEIGHT + 18, geometry.height - CARD_HEIGHT) }}
-            >
-              <span>Third Place</span>
-              <MatchCard
-                match={geometry.placementMatch}
-                roundIndex={geometry.lanes.length}
-                isLastRound
-                variant="pyramid-card compact-card"
-              />
-            </aside>
-          ) : null}
+            {geometry.lanes.map((lane) => (
+              <section
+                className={`bracket-lane lane-${lane.roundIndex} ${lane.roundIndex === geometry.lanes.length - 1 ? "final-lane" : ""}`}
+                key={lane.label}
+                style={{ left: lane.x }}
+                aria-labelledby={`round-${lane.roundIndex}`}
+              >
+                <div className="round-title">
+                  <h3 className="round-label" id={`round-${lane.roundIndex}`}>{lane.label}</h3>
+                  <span>{lane.matches.length} matches</span>
+                </div>
+                {lane.cards.map((card) => (
+                  <div className="pyramid-card-slot" key={card.match.id} style={{ top: card.y }}>
+                    <MatchCard
+                      match={card.match}
+                      roundIndex={lane.roundIndex}
+                      isLastRound={lane.roundIndex === geometry.lanes.length - 1}
+                      variant="pyramid-card"
+                      onSelect={onSelect}
+                    />
+                  </div>
+                ))}
+              </section>
+            ))}
+
+            {geometry.placementMatch && geometry.finalCard ? (
+              <aside
+                className="third-place-card"
+                style={{ left: geometry.finalCard.x, top: geometry.thirdPlaceTop }}
+              >
+                <span>Third Place</span>
+                <MatchCard
+                  match={geometry.placementMatch}
+                  roundIndex={geometry.lanes.length}
+                  isLastRound
+                  variant="pyramid-card compact-card"
+                  onSelect={onSelect}
+                />
+              </aside>
+            ) : null}
+          </div>
         </div>
-      </div>
+        </>
+      ) : (
+        <div className="bracket-collapsed-note">Bracket hidden — {totalMatches} knockout matches tracked.</div>
+      )}
     </section>
   );
 }
 
-function EventGrid({ feed }) {
-  const visibleEvents = feed.events.slice(0, 18);
+const EVENT_GRID_CAP = 12;
+
+function EventGrid({ feed, onSelect }) {
+  const [showAll, setShowAll] = useState(false);
+  const total = feed.events.length;
+  const visibleEvents = showAll ? feed.events : feed.events.slice(0, EVENT_GRID_CAP);
 
   return (
     <section className="event-board" aria-labelledby="events-title">
       <div className="section-heading">
         <div>
           <h2 id="events-title">{feed.sport.label} Live Board</h2>
-          <p>{feed.sport.name} data from {feed.sport.source}. Showing live, next, then recent events.</p>
+          <p>Tap any matchup for team & player stats, injuries, odds and win probability.</p>
         </div>
         <span className="source-pill">{formatSourceCount(feed.sport)}</span>
       </div>
       {visibleEvents.length ? (
-        <div className="event-grid">
-          {visibleEvents.map((event) => (
-            <MatchCard key={event.id} match={event} variant="event-card" />
-          ))}
-        </div>
+        <>
+          <div className="event-grid">
+            {visibleEvents.map((event, index) => (
+              <div key={event.id} style={{ animationDelay: `${Math.min(index * 45, 540)}ms` }}>
+                <MatchCard match={event} variant="event-card" onSelect={onSelect} />
+              </div>
+            ))}
+          </div>
+          {total > EVENT_GRID_CAP ? (
+            <div className="event-grid-more">
+              <button className="show-more" type="button" onClick={() => setShowAll((v) => !v)}>
+                {showAll ? "Show fewer" : `Show all ${total} games`}
+              </button>
+            </div>
+          ) : null}
+        </>
       ) : (
         <div className="empty-state compact-empty">
           <Activity aria-hidden="true" />
@@ -527,10 +994,11 @@ function EventGrid({ feed }) {
   );
 }
 
-function InfoPanel({ feed }) {
+function InfoPanel({ feed, onSelect }) {
   const liveMatches = getLiveMatches(feed.events);
   const todayMatches = getTodayMatches(feed.events);
   const nextMatches = getNextMatches(feed.events, new Date(), 4);
+  const coverage = feed.error ? 0 : feed.summary.total ? 100 : 60;
 
   return (
     <aside className="side-panel" aria-label={`${feed.sport.label} status`}>
@@ -542,25 +1010,25 @@ function InfoPanel({ feed }) {
         {liveMatches.length ? (
           <div className="today-list">
             {liveMatches.slice(0, 4).map((match) => (
-              <article className="today-match live-row" key={match.id}>
+              <button className="today-match live-row" key={match.id} type="button" onClick={() => onSelect(match)}>
                 <div>
                   <span className="dot live" />
                   <strong>{match.clockLabel}</strong>
                 </div>
                 <p>{match.title}</p>
                 <small>{match.city || match.venue || match.source}</small>
-              </article>
+              </button>
             ))}
           </div>
         ) : (
           <div className="next-up-list">
             <p className="panel-empty">No active live event in {feed.sport.label} right now.</p>
             {nextMatches.slice(0, 3).map((match) => (
-              <article key={match.id}>
+              <button key={match.id} type="button" onClick={() => onSelect(match)}>
                 <span>{match.sportLabel}</span>
                 <strong>{match.title}</strong>
                 <small>{formatKickoff(match.date)}</small>
-              </article>
+              </button>
             ))}
           </div>
         )}
@@ -576,14 +1044,14 @@ function InfoPanel({ feed }) {
             <p className="panel-empty">No {feed.sport.label} events listed for today.</p>
           ) : (
             todayMatches.slice(0, 5).map((match) => (
-              <article className="today-match" key={match.id}>
+              <button className="today-match" key={match.id} type="button" onClick={() => onSelect(match)}>
                 <div>
                   <span className={`dot ${match.status}`} />
                   <strong>{match.status === "live" ? match.clockLabel : formatShortKickoff(match.date)}</strong>
                 </div>
                 <p>{match.title}</p>
                 <small>{match.status === "completed" ? match.statusLabel : match.city || "Scheduled"}</small>
-              </article>
+              </button>
             ))
           )}
         </div>
@@ -608,6 +1076,15 @@ function InfoPanel({ feed }) {
             <dd>{feed.summary.nextTitle || "TBD"}</dd>
           </div>
         </dl>
+        <div className="feed-health-bar">
+          <div className="fhb-track">
+            <div className="fhb-fill" style={{ width: `${coverage}%` }} />
+          </div>
+          <div className="fhb-label">
+            <span>Data coverage</span>
+            <span className={feed.error ? "" : "fhb-ok"}>{feed.error ? "Degraded" : "Healthy"}</span>
+          </div>
+        </div>
       </section>
 
       <section className="panel-section pitch-card">
@@ -619,35 +1096,756 @@ function InfoPanel({ feed }) {
   );
 }
 
-function LoadingScreen() {
+function NewsSection({ sport }) {
+  const { loading, data: items } = useCachedSportData(sport, newsUrlForSport, (p) => normalizeNews(p, 8), newsCache, []);
+
   return (
-    <main className="loading-screen">
-      <div className="loading-ball" aria-hidden="true" />
-      <h1>Loading BRNDN Sports Tracker</h1>
-      <p>Checking NFL, MLB, NHL, NBA, FIFA, MLS, Tennis and Golf feeds.</p>
+    <section className="news-board" aria-labelledby="news-title">
+      <div className="section-heading">
+        <div>
+          <h2 id="news-title">
+            <Newspaper aria-hidden="true" /> {sport.label} Headlines
+          </h2>
+          <p>Latest stories and breaking news for {sport.name}.</p>
+        </div>
+        <span className="accent-rule" aria-hidden="true" />
+      </div>
+      {loading ? (
+        <div className="news-grid">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <div className="sk news-skeleton" key={index} />
+          ))}
+        </div>
+      ) : items.length ? (
+        <div className="news-grid">
+          {items.map((article) => (
+            <a
+              className="news-card"
+              key={article.id}
+              href={article.link || "#"}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={`${article.headline} (opens in a new tab)`}
+            >
+              {article.image ? (
+                <div className="news-thumb" style={{ backgroundImage: `url(${article.image})` }} />
+              ) : (
+                <div className="news-thumb placeholder" aria-hidden="true">
+                  <Newspaper />
+                </div>
+              )}
+              <div className="news-body">
+                <h3>{article.headline}</h3>
+                {article.description ? <p>{article.description}</p> : null}
+                <div className="news-meta">
+                  <span>{formatRelative(article.published)}</span>
+                  <ExternalLink aria-hidden="true" />
+                </div>
+              </div>
+            </a>
+          ))}
+        </div>
+      ) : (
+        <div className="empty-state compact-empty">
+          <Newspaper aria-hidden="true" />
+          <h2>No headlines right now</h2>
+          <p>News for {sport.label} will appear here when the feed publishes stories.</p>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/* ───────────────────────── Stats Lab ───────────────────────── */
+
+function Collapsible({ title, icon: Icon, badge, defaultOpen = false, children }) {
+  const [open, setOpen] = useState(defaultOpen);
+  const [mounted, setMounted] = useState(defaultOpen);
+
+  const toggle = () => {
+    setOpen((value) => {
+      const next = !value;
+      if (next) setMounted(true);
+      return next;
+    });
+  };
+
+  return (
+    <section className={`lab-section ${open ? "open" : ""}`}>
+      <button className="lab-head" type="button" onClick={toggle} aria-expanded={open}>
+        <span className="lab-title">
+          {Icon ? <Icon aria-hidden="true" /> : null}
+          {title}
+          {badge ? <span className="lab-badge">{badge}</span> : null}
+        </span>
+        <ChevronDown aria-hidden="true" className={`lab-chevron ${open ? "rot-open" : "rot-closed"}`} />
+      </button>
+      <div className={`lab-body ${open ? "open" : ""}`}>
+        <div className="lab-body-inner">{mounted ? children : null}</div>
+      </div>
+    </section>
+  );
+}
+
+function LabSkeleton({ rows = 4 }) {
+  return (
+    <div className="lab-loading">
+      {Array.from({ length: rows }).map((_, index) => (
+        <div className="sk lab-skel-row" key={index} />
+      ))}
+    </div>
+  );
+}
+
+function StandingsGroup({ group }) {
+  const [showAll, setShowAll] = useState(false);
+  const teams = showAll ? group.teams : group.teams.slice(0, 5);
+
+  return (
+    <div className="standings-group">
+      <h4>{group.groupName}</h4>
+      <div className="standings-table">
+        <div className="st-row st-head">
+          <span>#</span>
+          <span>Team</span>
+          <span>{group.isSoccer ? "Pts" : "W-L"}</span>
+          <span>{group.isSoccer ? "W-L-D" : "Strk"}</span>
+        </div>
+        {teams.map((team, index) => (
+          <div className="st-row" key={`${team.abbr}-${index}`}>
+            <span className="st-rank">{index + 1}</span>
+            <span className="st-team">
+              {team.logo ? <img src={team.logo} alt="" loading="lazy" /> : null}
+              <span>{team.name}</span>
+            </span>
+            <span className="st-rec">{group.isSoccer ? (team.points ?? "—") : recordLabel(team, false)}</span>
+            <span className="st-extra">
+              {group.isSoccer
+                ? [team.wins, team.losses, team.ties].every((v) => v !== null)
+                  ? `${team.wins}-${team.losses}-${team.ties}`
+                  : "—"
+                : team.streak || (team.winPct != null ? team.winPct.toFixed(3).replace(/^0/, "") : "—")}
+            </span>
+          </div>
+        ))}
+      </div>
+      {group.teams.length > 5 ? (
+        <button className="show-more" type="button" onClick={() => setShowAll((value) => !value)}>
+          {showAll ? "Show less" : `Show all ${group.teams.length}`}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function StandingsPanel({ sport }) {
+  const { loading, data: groups } = useCachedSportData(
+    sport,
+    standingsUrlForSport,
+    normalizeStandings,
+    standingsCache,
+    [],
+  );
+
+  return (
+    <Collapsible title="Standings" icon={ListOrdered} defaultOpen={false}>
+      {loading ? (
+        <LabSkeleton rows={5} />
+      ) : groups.length ? (
+        <div className="standings-groups">
+          {groups.map((group) => (
+            <StandingsGroup key={group.groupName} group={group} />
+          ))}
+        </div>
+      ) : (
+        <p className="detail-empty">Standings aren't available for {sport.label} right now.</p>
+      )}
+    </Collapsible>
+  );
+}
+
+function LeadersPanel({ sport }) {
+  const { loading, data: categories } = useCachedSportData(
+    sport,
+    leadersUrlForSport,
+    (p) => normalizeLeaders(p, 12, 3),
+    leadersCache,
+    [],
+  );
+  const [showAll, setShowAll] = useState(false);
+  const visible = showAll ? categories : categories.slice(0, 6);
+
+  return (
+    <Collapsible title="League Leaders" icon={Crown} defaultOpen={false}>
+      {loading ? (
+        <LabSkeleton rows={4} />
+      ) : categories.length ? (
+        <>
+          <div className="leaders-grid-lab">
+            {visible.map((category) => (
+              <div className="leader-card" key={category.category}>
+                <h4>{category.category}</h4>
+                {category.leaders.map((leader, index) => (
+                  <div className="leader-line" key={`${leader.athlete}-${index}`}>
+                    <span className="ll-rank">{index + 1}</span>
+                    <span className="ll-name">
+                      {leader.athlete}
+                      {leader.team ? <em> · {leader.team}</em> : null}
+                    </span>
+                    <span className="ll-val">{leader.value}</span>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+          {categories.length > 6 ? (
+            <button className="show-more" type="button" onClick={() => setShowAll((value) => !value)}>
+              {showAll ? "Show fewer categories" : `Show all ${categories.length} categories`}
+            </button>
+          ) : null}
+        </>
+      ) : (
+        <p className="detail-empty">League leaders aren't available for {sport.label} right now.</p>
+      )}
+    </Collapsible>
+  );
+}
+
+function VegasPanel({ feed, onSelect }) {
+  const candidates = useMemo(() => {
+    const now = new Date();
+    const live = getLiveMatches(feed.events);
+    const next = getNextMatches(feed.events, now, 8);
+    return [...live, ...next].slice(0, 6);
+  }, [feed.events]);
+  const { loading, rows } = useOddsBoard(candidates);
+
+  return (
+    <Collapsible title="Vegas Lines" icon={DollarSign} badge="O/U" defaultOpen>
+      {loading ? (
+        <LabSkeleton rows={4} />
+      ) : rows.length ? (
+        <div className="vegas-board">
+          <div className="vegas-row vegas-head">
+            <span>Matchup</span>
+            <span>O/U</span>
+            <span>Spread</span>
+            <span>ML H/A</span>
+          </div>
+          {rows.map(({ event, odds }) => (
+            <button className="vegas-row" key={event.id} type="button" onClick={() => onSelect(event)}>
+              <span className="vg-match">
+                <span aria-hidden="true">{themeFor(event.sportId).icon}</span>
+                {event.home.abbreviation} v {event.away.abbreviation}
+              </span>
+              <span className="vg-ou">{odds.overUnder ?? "—"}</span>
+              <span className="vg-spread">{odds.details || (odds.spread !== null ? odds.spread : "—")}</span>
+              <span className="vg-ml">{formatMoneyline(odds.homeMoneyLine)} / {formatMoneyline(odds.awayMoneyLine)}</span>
+            </button>
+          ))}
+          <small className="vegas-note">Lines via ESPN/DraftKings. For entertainment only — tap a game for full odds.</small>
+        </div>
+      ) : (
+        <p className="detail-empty">No betting lines posted for upcoming {feed.sport.label} games yet.</p>
+      )}
+    </Collapsible>
+  );
+}
+
+function ReferencesPanel({ sport }) {
+  const links = STATS_REFERENCE_LINKS[sport.id] || [];
+  if (!links.length) return null;
+
+  return (
+    <Collapsible title="Stats References" icon={Link2} badge="External" defaultOpen={false}>
+      <div className="ref-links">
+        {links.map((link) => (
+          <a
+            className="ref-link"
+            key={link.url}
+            href={link.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={`${link.siteName} — ${link.note} (opens in a new tab)`}
+          >
+            <span className="rl-name">
+              {link.siteName}
+              <ExternalLink aria-hidden="true" />
+            </span>
+            <small>{link.note}</small>
+          </a>
+        ))}
+      </div>
+    </Collapsible>
+  );
+}
+
+function StatsLab({ feed, onSelect }) {
+  const sport = feed.sport;
+  const showOdds = sportHasOddsBoard(sport);
+  const showStandings = sportHasStandings(sport);
+  const showLeaders = sportHasLeaders(sport);
+
+  return (
+    <section className="stats-lab" aria-label={`${sport.label} deep stats`}>
+      <div className="lab-banner">
+        <span className="lab-banner-icon" aria-hidden="true">
+          <FlaskConical />
+        </span>
+        <div>
+          <strong>Stats Lab · {sport.label}</strong>
+          <small>Vegas lines, standings, leaders & reference links — for the stats nerds</small>
+        </div>
+      </div>
+      {showOdds ? <VegasPanel feed={feed} onSelect={onSelect} /> : null}
+      {showStandings ? <StandingsPanel sport={sport} /> : null}
+      {showLeaders ? <LeadersPanel sport={sport} /> : null}
+      <ReferencesPanel sport={sport} />
+    </section>
+  );
+}
+
+/* ───────────────────────── Game detail modal ───────────────────────── */
+
+function WinProbability({ event, prob }) {
+  if (!prob) {
+    return <p className="detail-empty">Win probability isn't available for this matchup yet.</p>;
+  }
+  return (
+    <div className="winprob">
+      <div className="winprob-bar">
+        <div className="winprob-fill home" style={{ width: `${prob.homePct}%` }}>
+          {prob.homePct >= 16 ? `${prob.homePct}%` : ""}
+        </div>
+        <div className="winprob-fill away" style={{ width: `${prob.awayPct}%` }}>
+          {prob.awayPct >= 16 ? `${prob.awayPct}%` : ""}
+        </div>
+      </div>
+      <div className="winprob-legend">
+        <span><span className="swatch home" /> {event.home.shortName} {prob.homePct}%</span>
+        <span>{event.away.shortName} {prob.awayPct}% <span className="swatch away" /></span>
+      </div>
+      <small className="winprob-source">{prob.source}</small>
+    </div>
+  );
+}
+
+function BettingPanel({ event, odds }) {
+  if (!odds) {
+    return <p className="detail-empty">Betting lines haven't been posted for this matchup yet.</p>;
+  }
+  return (
+    <div className="betting">
+      <div className="betting-grid">
+        <div className="betting-cell highlight">
+          <span className="bc-label">Over / Under</span>
+          <strong>{odds.overUnder ?? "—"}</strong>
+          <small>O {formatMoneyline(odds.overOdds)} · U {formatMoneyline(odds.underOdds)}</small>
+        </div>
+        <div className="betting-cell">
+          <span className="bc-label">Spread</span>
+          <strong>{odds.details || (odds.spread !== null ? odds.spread : "—")}</strong>
+          <small>{odds.favorite ? `${odds.favorite === "home" ? event.home.shortName : event.away.shortName} favored` : "Pick 'em"}</small>
+        </div>
+        <div className="betting-cell">
+          <span className="bc-label">{event.home.shortName} ML</span>
+          <strong>{formatMoneyline(odds.homeMoneyLine)}</strong>
+        </div>
+        <div className="betting-cell">
+          <span className="bc-label">{event.away.shortName} ML</span>
+          <strong>{formatMoneyline(odds.awayMoneyLine)}</strong>
+        </div>
+      </div>
+      <small className="betting-source">Lines via {odds.provider}. For entertainment only.</small>
+    </div>
+  );
+}
+
+function TeamStatsTable({ event, rows }) {
+  if (!rows.length) {
+    return <p className="detail-empty">Team stats will appear once the game is underway.</p>;
+  }
+  return (
+    <div className="stats-table">
+      <div className="stats-head">
+        <span>{event.home.abbreviation}</span>
+        <span className="stats-metric">Stat</span>
+        <span>{event.away.abbreviation}</span>
+      </div>
+      {rows.map((row) => (
+        <div className="stats-row" key={row.label}>
+          <span className="stats-home">{row.home}</span>
+          <span className="stats-metric">{row.label}</span>
+          <span className="stats-away">{row.away}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function LeadersColumn({ team }) {
+  const leaders = team.leaders || [];
+  if (!leaders.length) return null;
+  return (
+    <div className="leaders-col">
+      <div className="leaders-team">
+        {team.flagUrl ? <img src={team.flagUrl} alt="" /> : <span className="flag-placeholder">{team.abbreviation.slice(0, 2)}</span>}
+        <strong>{team.shortName}</strong>
+      </div>
+      {leaders.map((leader) => (
+        <div className="leader-row" key={`${team.id}-${leader.category}`}>
+          <span className="leader-cat">{leader.category}</span>
+          <span className="leader-name">{leader.athlete}</span>
+          <span className="leader-val">{leader.value}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function InjuriesPanel({ groups }) {
+  if (!groups.length) {
+    return <p className="detail-empty">No reported injuries for either side.</p>;
+  }
+  return (
+    <div className="injuries">
+      {groups.map((group) => (
+        <div className="injury-team" key={group.teamAbbr}>
+          <strong>{group.teamAbbr || group.teamName}</strong>
+          <ul>
+            {group.players.map((player) => (
+              <li key={`${group.teamAbbr}-${player.name}`}>
+                <span className="inj-name">{player.name}{player.position ? ` · ${player.position}` : ""}</span>
+                <span className="inj-status">{player.status}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function GameDetailModal({ event, onClose }) {
+  const { loading, data, error } = useGameDetail(event);
+  const sheetRef = useRef(null);
+
+  useEffect(() => {
+    const previouslyFocused = document.activeElement;
+    sheetRef.current?.focus();
+
+    const handler = (e) => {
+      if (e.key === "Escape") {
+        onClose();
+        return;
+      }
+      if (e.key !== "Tab" || !sheetRef.current) return;
+      const focusable = Array.from(
+        sheetRef.current.querySelectorAll('button, a[href], [tabindex]:not([tabindex="-1"])'),
+      ).filter((el) => !el.disabled && el.offsetParent !== null);
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => {
+      window.removeEventListener("keydown", handler);
+      if (previouslyFocused && typeof previouslyFocused.focus === "function") {
+        previouslyFocused.focus();
+      }
+    };
+  }, [onClose]);
+
+  if (!event) return null;
+  const theme = themeFor(event.sportId);
+  const isLive = event.status === "live";
+  const hasLeaders = (event.home.leaders?.length || 0) + (event.away.leaders?.length || 0) > 0;
+  const unsupported = error === "unsupported";
+
+  return (
+    <div className="modal-overlay" style={accentVars(event.sportId)} onClick={onClose}>
+      <div className="modal-sheet" role="dialog" aria-modal="true" aria-label={event.title} ref={sheetRef} tabIndex={-1} onClick={(e) => e.stopPropagation()}>
+        <button className="modal-close" type="button" onClick={onClose} aria-label="Close details">
+          <X aria-hidden="true" />
+        </button>
+
+        <header className="detail-header">
+          <span className="detail-eyeline">
+            <span className="detail-sport" aria-hidden="true">{theme.icon}</span>
+            {event.sportLabel} · {event.stage}
+          </span>
+          <div className="detail-score">
+            <div className="detail-team">
+              {event.home.flagUrl ? <img src={event.home.flagUrl} alt="" /> : <span className="flag-placeholder">{event.home.abbreviation.slice(0, 2)}</span>}
+              <div>
+                <strong>{event.home.shortName}</strong>
+                {event.home.record ? <small>{event.home.record}</small> : null}
+              </div>
+            </div>
+            <div className="detail-center">
+              <span className="detail-nums">
+                {event.homeScore ?? "-"} <span className="detail-dash">:</span> {event.awayScore ?? "-"}
+              </span>
+              <span className={`detail-state ${isLive ? "live" : ""}`}>
+                {isLive ? event.clockLabel : event.status === "completed" ? "Final" : formatShortKickoff(event.date)}
+              </span>
+            </div>
+            <div className="detail-team away">
+              {event.away.flagUrl ? <img src={event.away.flagUrl} alt="" /> : <span className="flag-placeholder">{event.away.abbreviation.slice(0, 2)}</span>}
+              <div>
+                <strong>{event.away.shortName}</strong>
+                {event.away.record ? <small>{event.away.record}</small> : null}
+              </div>
+            </div>
+          </div>
+          <p className="detail-sub">{formatKickoff(event.date)}{event.city ? ` · ${event.city}` : event.venue ? ` · ${event.venue}` : ""}</p>
+        </header>
+
+        <div className="detail-body">
+          {unsupported ? (
+            <div className="detail-block">
+              <p className="detail-empty">
+                Deep stats, odds and injuries aren't available for {event.sportLabel} matches. Check the headlines below for the latest.
+              </p>
+            </div>
+          ) : loading ? (
+            <div className="detail-loading">
+              {Array.from({ length: 4 }).map((_, index) => (
+                <div className="sk detail-skeleton" key={index} />
+              ))}
+            </div>
+          ) : error ? (
+            <div className="detail-block">
+              <p className="detail-empty">Couldn't load detailed stats for this game. {error}</p>
+            </div>
+          ) : data ? (
+            <>
+              <div className="detail-block">
+                <h3 className="detail-title"><Percent aria-hidden="true" /> Who's winning it</h3>
+                <WinProbability event={event} prob={data.winProbability} />
+              </div>
+
+              <div className="detail-block">
+                <h3 className="detail-title"><DollarSign aria-hidden="true" /> Key over/unders & lines</h3>
+                <BettingPanel event={event} odds={data.odds} />
+              </div>
+
+              <div className="detail-block">
+                <h3 className="detail-title"><BarChart3 aria-hidden="true" /> Team stats</h3>
+                <TeamStatsTable event={event} rows={data.teamStats} />
+              </div>
+
+              {hasLeaders ? (
+                <div className="detail-block">
+                  <h3 className="detail-title"><Users aria-hidden="true" /> Player leaders</h3>
+                  <div className="leaders">
+                    <LeadersColumn team={event.home} />
+                    <LeadersColumn team={event.away} />
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="detail-block">
+                <h3 className="detail-title"><HeartPulse aria-hidden="true" /> Injury report</h3>
+                <InjuriesPanel groups={data.injuries} />
+              </div>
+
+              {data.news.length ? (
+                <div className="detail-block">
+                  <h3 className="detail-title"><Newspaper aria-hidden="true" /> Game news</h3>
+                  <div className="detail-news">
+                    {data.news.map((article) => (
+                      <a
+                        key={article.id}
+                        href={article.link || "#"}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        aria-label={`${article.headline} (opens in a new tab)`}
+                      >
+                        <span>{article.headline}</span>
+                        <small>{formatRelative(article.published)}</small>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ───────────────────────── Landing ───────────────────────── */
+
+function Landing({ feeds, onEnter, totalLive }) {
+  return (
+    <div className="landing" style={accentVarsFrom(LANDING_ACCENT.accent, LANDING_ACCENT.accent2)}>
+      <div className="landing-glow" aria-hidden="true" />
+      <LiveTicker feeds={feeds} onSelect={(event) => onEnter(event.sportId)} />
+
+      <header className="landing-hero">
+        <div className="hero-mark" aria-hidden="true">
+          <Trophy />
+        </div>
+        <h1>
+          BRNDN <span className="brand-accent">Sports</span> Tracker
+        </h1>
+        <p className="hero-tagline">
+          Live scores, Vegas lines, win probability and deep stats across every major sport — all on one screen.
+        </p>
+        <button className="hero-cta" type="button" onClick={() => onEnter()}>
+          Enter Live Tracker
+          <ArrowRight aria-hidden="true" />
+        </button>
+        <p className="hero-meta">
+          <span className="hero-live-dot" aria-hidden="true" />
+          {totalLive ? `${totalLive} games live right now` : "Auto-refreshing live feeds"} · 8 sports · free & real-time
+        </p>
+      </header>
+
+      <section className="hero-sports" aria-label="Popular sports">
+        {POPULAR_SPORTS.map((sportId) => {
+          const sport = sportById(sportId);
+          const feed = feeds[sportId] || emptyFeed(sport);
+          const theme = themeFor(sportId);
+          return (
+            <button
+              className="hero-sport-card"
+              key={sportId}
+              type="button"
+              style={accentVarsFrom(theme.accent, theme.accent2)}
+              onClick={() => onEnter(sportId)}
+            >
+              <span className="hsc-icon" aria-hidden="true">{theme.icon}</span>
+              <span className="hsc-label">{sport.label}</span>
+              <span className="hsc-meta">
+                {feed.summary.live ? (
+                  <span className="hsc-live">
+                    <span className="mini-dot" aria-hidden="true" /> {feed.summary.live} live
+                  </span>
+                ) : (
+                  <span className="hsc-count">{feed.summary.total} events</span>
+                )}
+              </span>
+              <ArrowRight className="hsc-arrow" aria-hidden="true" />
+            </button>
+          );
+        })}
+      </section>
+
+      <footer className="landing-foot">
+        Tap any score above or a sport to jump straight into live tracking.
+      </footer>
+    </div>
+  );
+}
+
+function SkeletonScreen() {
+  return (
+    <main className="skeleton-screen" aria-busy="true" aria-label="Loading sports data">
+      <div className="sk sk-header">
+        <div className="skeleton-brand" style={{ padding: 16 }}>
+          <div className="sk sk-mark" />
+          <div className="sk-lines">
+            <div className="sk sk-line" />
+            <div className="sk sk-line short" />
+          </div>
+        </div>
+      </div>
+      <div className="sk-tabs">
+        {Array.from({ length: 8 }).map((_, index) => (
+          <div className="sk sk-tab" key={index} />
+        ))}
+      </div>
+      <div className="sk sk-command" />
+      <div className="sk-stats">
+        {Array.from({ length: 4 }).map((_, index) => (
+          <div className="sk sk-stat" key={index} />
+        ))}
+      </div>
+      <div className="sk sk-board" />
     </main>
   );
 }
 
 function App() {
   const { feeds, lastUpdated, nextRefreshAt, refreshing, refresh } = useSportsFeeds();
+  const [entered, setEntered] = useState(false);
   const [activeSportId, setActiveSportId] = useState(DEFAULT_SPORT_ID);
+  const [selectedRef, setSelectedRef] = useState(null);
+  const [navOpen, setNavOpen] = useState(false);
+  const [bracketOpen, setBracketOpen] = useState(true);
   const activeSport = sportById(activeSportId);
   const activeFeed = feeds[activeSportId] || emptyFeed(activeSport);
   const rounds = useMemo(() => buildKnockoutRounds(activeFeed.events), [activeFeed.events]);
   const loading = Object.values(feeds).every((feed) => feed.loading);
   const errorCount = Object.values(feeds).filter((feed) => feed.error).length;
+  const totalLive = useMemo(
+    () => Object.values(feeds).reduce((sum, feed) => sum + (feed.summary?.live || 0), 0),
+    [feeds],
+  );
 
-  if (loading) return <LoadingScreen />;
+  // Keep the open modal in sync with refreshes by re-resolving the event by id each render.
+  const selectEvent = useCallback((event) => {
+    if (event) setSelectedRef({ id: event.id, sportId: event.sportId, snapshot: event });
+  }, []);
+  const closeEvent = useCallback(() => setSelectedRef(null), []);
+  const selectedEvent = useMemo(() => {
+    if (!selectedRef) return null;
+    const list = feeds[selectedRef.sportId]?.events || [];
+    return list.find((evt) => evt.id === selectedRef.id) || selectedRef.snapshot;
+  }, [selectedRef, feeds]);
+
+  // Lock body scroll (and hide the bottom nav) while the modal or drawer is open.
+  useEffect(() => {
+    const locked = Boolean(selectedRef) || navOpen;
+    document.body.style.overflow = locked ? "hidden" : "";
+    document.body.classList.toggle("is-locked", locked);
+    return () => {
+      document.body.style.overflow = "";
+      document.body.classList.remove("is-locked");
+    };
+  }, [selectedRef, navOpen]);
+
+  const enterApp = useCallback((sportId) => {
+    if (sportId) setActiveSportId(sportId);
+    setEntered(true);
+    window.scrollTo({ top: 0, behavior: "auto" });
+  }, []);
+
+  const scrollToTop = useCallback(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, []);
+
+  if (loading) return <SkeletonScreen />;
+
+  if (!entered) {
+    return <Landing feeds={feeds} onEnter={enterApp} totalLive={totalLive} />;
+  }
 
   return (
-    <div className="app">
+    <div className="app" style={accentVars(activeSportId)}>
+      <div className="ambient-horizon" aria-hidden="true" />
+
       <Header
         refreshing={refreshing}
         lastUpdated={lastUpdated}
         nextRefreshAt={nextRefreshAt}
         onRefresh={refresh}
+        liveCount={totalLive}
+        onHome={() => setEntered(false)}
       />
+
+      <LiveTicker feeds={feeds} onSelect={selectEvent} />
 
       {errorCount ? (
         <div className="error-banner" role="status">
@@ -658,20 +1856,49 @@ function App() {
 
       <main className="dashboard-layout">
         <SportsTabs activeSportId={activeSportId} feeds={feeds} onSelect={setActiveSportId} />
-        <LiveCommandCenter feed={activeFeed} allFeeds={feeds} />
 
-        <section className="scoreboard-strip" aria-label={`${activeFeed.sport.label} summary`}>
-          <StatCard icon={Trophy} label="Events" value={activeFeed.summary.total} tone="gold" />
-          <StatCard icon={Zap} label="Live" value={activeFeed.summary.live} tone="red" />
-          <StatCard icon={CheckCircle2} label="Completed" value={activeFeed.summary.completed} tone="emerald" />
-          <StatCard icon={Clock3} label="Upcoming" value={activeFeed.summary.upcoming} tone="blue" />
-        </section>
+        <div className="sport-content" key={activeSportId}>
+          <LiveCommandCenter feed={activeFeed} allFeeds={feeds} onSelect={selectEvent} />
 
-        <div className="main-grid">
-          {activeFeed.sport.id === "fifa" ? <BracketBoard rounds={rounds} /> : <EventGrid feed={activeFeed} />}
-          <InfoPanel feed={activeFeed} />
+          <section className="scoreboard-strip" aria-label={`${activeFeed.sport.label} summary`}>
+            <StatCard icon={Trophy} label="Events" value={activeFeed.summary.total} tone="gold" />
+            <StatCard icon={Zap} label="Live" value={activeFeed.summary.live} tone="red" hasLive={activeFeed.summary.live > 0} />
+            <StatCard icon={CheckCircle2} label="Completed" value={activeFeed.summary.completed} tone="emerald" />
+            <StatCard icon={Clock3} label="Upcoming" value={activeFeed.summary.upcoming} tone="blue" />
+          </section>
+
+          <div className="main-grid">
+            {activeFeed.sport.id === "fifa" ? (
+              <BracketBoard rounds={rounds} open={bracketOpen} onToggle={() => setBracketOpen((v) => !v)} onSelect={selectEvent} />
+            ) : (
+              <EventGrid feed={activeFeed} onSelect={selectEvent} />
+            )}
+            <InfoPanel feed={activeFeed} onSelect={selectEvent} />
+          </div>
+
+          <NewsSection sport={activeFeed.sport} />
+
+          <StatsLab feed={activeFeed} onSelect={selectEvent} />
         </div>
       </main>
+
+      <BottomNav
+        onHome={() => setEntered(false)}
+        onTop={scrollToTop}
+        onMenu={() => setNavOpen(true)}
+        onRefresh={refresh}
+        refreshing={refreshing}
+      />
+
+      <SportsSheet
+        open={navOpen}
+        activeSportId={activeSportId}
+        feeds={feeds}
+        onSelect={setActiveSportId}
+        onClose={() => setNavOpen(false)}
+      />
+
+      {selectedEvent ? <GameDetailModal event={selectedEvent} onClose={closeEvent} /> : null}
     </div>
   );
 }
