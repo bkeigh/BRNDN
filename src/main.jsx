@@ -61,12 +61,13 @@ const REFRESH_INTERVAL_MS = 60_000;
 const DEFAULT_SPORT_ID = "fifa";
 const POPULAR_SPORTS = ["nfl", "nba", "mlb", "nhl", "fifa", "mls"];
 const THIRD_PLACE_LABEL = "Play-off for third place";
-const CARD_WIDTH = 214;
-const CARD_HEIGHT = 166;
-const LANE_WIDTH = 256;
-const BRACKET_STEP = 184;
-const BRACKET_TOP = 84;
-const THIRD_PLACE_GAP = 52;
+const CARD_WIDTH = 216;
+const CARD_HEIGHT = 158;
+const LANE_WIDTH = 296;
+const BRACKET_STEP = 220;
+const BRACKET_TOP = 100;
+const THIRD_PLACE_GAP = 76;
+const THIRD_PLACE_LABEL_HEIGHT = 26;
 
 // Visual metadata per sport: glyph + accent color drives the live theme.
 // Accents are spread around the hue wheel so no two sports read as the same color.
@@ -445,10 +446,8 @@ function Header({ refreshing, lastUpdated, nextRefreshAt, onRefresh, liveCount, 
           <Trophy />
         </div>
         <div className="brand-text">
-          <h1>
-            BRNDN <span className="brand-accent">Sports</span> Tracker
-          </h1>
-          <p>NFL · MLB · NHL · NBA · FIFA · MLS · Tennis · Golf — live</p>
+          <h1>BRNDN</h1>
+          <span className="brand-sub">Sports Tracker</span>
         </div>
       </button>
 
@@ -829,11 +828,23 @@ function buildPyramidGeometry(rounds) {
       const startY = card.y + CARD_HEIGHT / 2;
       const endX = target.x;
       const endY = target.y + CARD_HEIGHT / 2;
-      const control = Math.max(34, (endX - startX) / 2);
+      const midX = startX + (endX - startX) / 2;
+      const dirY = endY >= startY ? 1 : -1;
+      const r = Math.max(0, Math.min(14, Math.abs(endY - startY) / 2, Math.abs(midX - startX)));
+
+      // Clean orthogonal elbow with rounded corners (classic bracket routing).
+      const d =
+        r < 1
+          ? `M ${startX} ${startY} H ${endX}`
+          : `M ${startX} ${startY} H ${midX - r} ` +
+            `Q ${midX} ${startY} ${midX} ${startY + dirY * r} ` +
+            `V ${endY - dirY * r} ` +
+            `Q ${midX} ${endY} ${midX + r} ${endY} ` +
+            `H ${endX}`;
 
       return {
         key: `${lane.label}-${card.match.id}`,
-        d: `M ${startX} ${startY} C ${startX + control} ${startY}, ${endX - control} ${endY}, ${endX} ${endY}`,
+        d,
       };
     }).filter(Boolean);
   });
@@ -843,7 +854,8 @@ function buildPyramidGeometry(rounds) {
   let thirdPlaceTop = null;
   if (placementRound?.matches?.[0] && finalCard) {
     thirdPlaceTop = finalCard.y + CARD_HEIGHT + THIRD_PLACE_GAP;
-    height = Math.max(height, thirdPlaceTop + CARD_HEIGHT + BRACKET_TOP);
+    // Reserve for the "Third Place" label + the card + a comfortable bottom pad.
+    height = Math.max(height, thirdPlaceTop + THIRD_PLACE_LABEL_HEIGHT + CARD_HEIGHT + 32);
   }
 
   return {
@@ -1686,61 +1698,155 @@ function GameDetailModal({ event, onClose }) {
 
 /* ───────────────────────── Landing ───────────────────────── */
 
+// Simple night soccer stadium with floodlights — pure SVG, no network dependency.
+function HeroStadium() {
+  const towers = [
+    { x: 150, y: 150 },
+    { x: 405, y: 120 },
+    { x: 1035, y: 120 },
+    { x: 1290, y: 150 },
+  ];
+  return (
+    <svg className="hero-stadium" viewBox="0 0 1440 900" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+      <defs>
+        <linearGradient id="bg-sky" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#060b18" />
+          <stop offset="0.5" stopColor="#0a1830" />
+          <stop offset="1" stopColor="#103358" />
+        </linearGradient>
+        <radialGradient id="bg-lamp" cx="0.5" cy="0.5" r="0.5">
+          <stop offset="0" stopColor="#fff8da" stopOpacity="0.95" />
+          <stop offset="0.35" stopColor="#ffe9a6" stopOpacity="0.4" />
+          <stop offset="1" stopColor="#ffe9a6" stopOpacity="0" />
+        </radialGradient>
+        <linearGradient id="bg-cone" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#fff3c4" stopOpacity="0.16" />
+          <stop offset="1" stopColor="#fff3c4" stopOpacity="0" />
+        </linearGradient>
+        <linearGradient id="bg-pitch" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#1e7a44" />
+          <stop offset="1" stopColor="#0a4527" />
+        </linearGradient>
+      </defs>
+
+      <rect width="1440" height="900" fill="url(#bg-sky)" />
+
+      <g fill="#cfe0ff" opacity="0.5">
+        <circle cx="220" cy="70" r="1.5" />
+        <circle cx="540" cy="48" r="1.2" />
+        <circle cx="760" cy="80" r="1.6" />
+        <circle cx="980" cy="54" r="1.3" />
+        <circle cx="1180" cy="86" r="1.5" />
+        <circle cx="120" cy="120" r="1.1" />
+        <circle cx="1320" cy="70" r="1.4" />
+      </g>
+
+      {/* stadium bowl silhouette */}
+      <ellipse cx="720" cy="760" rx="980" ry="330" fill="#0a1528" />
+      <ellipse cx="720" cy="735" rx="820" ry="262" fill="#0d1d34" />
+
+      {/* light cones + floodlight towers */}
+      {towers.map((t) => {
+        const lean = t.x < 720 ? 70 : -70;
+        return (
+          <g key={t.x}>
+            <polygon
+              points={`${t.x},${t.y + 26} ${t.x + 150 + lean},560 ${t.x - 150 + lean},560`}
+              fill="url(#bg-cone)"
+            />
+            <circle cx={t.x} cy={t.y} r="150" fill="url(#bg-lamp)" className="stadium-lamp" />
+            <rect x={t.x - 5} y={t.y} width="10" height="600" fill="#0c1726" />
+            <rect x={t.x - 34} y={t.y - 26} width="68" height="40" rx="7" fill="#16263c" stroke="#33506f" strokeWidth="1.5" />
+            <g fill="#fff7d6">
+              <circle cx={t.x - 21} cy={t.y - 12} r="3.4" />
+              <circle cx={t.x - 7} cy={t.y - 12} r="3.4" />
+              <circle cx={t.x + 7} cy={t.y - 12} r="3.4" />
+              <circle cx={t.x + 21} cy={t.y - 12} r="3.4" />
+              <circle cx={t.x - 21} cy={t.y + 2} r="3.4" />
+              <circle cx={t.x - 7} cy={t.y + 2} r="3.4" />
+              <circle cx={t.x + 7} cy={t.y + 2} r="3.4" />
+              <circle cx={t.x + 21} cy={t.y + 2} r="3.4" />
+            </g>
+          </g>
+        );
+      })}
+
+      {/* pitch */}
+      <path d="M 300 900 L 1140 900 L 1010 620 L 430 620 Z" fill="url(#bg-pitch)" />
+      <g opacity="0.16" fill="#ffffff">
+        <path d="M 430 620 L 470 620 L 388 900 L 300 900 Z" />
+        <path d="M 540 620 L 580 620 L 560 900 L 476 900 Z" />
+        <path d="M 650 620 L 690 620 L 732 900 L 652 900 Z" />
+        <path d="M 760 620 L 800 620 L 904 900 L 828 900 Z" />
+        <path d="M 870 620 L 910 620 L 1076 900 L 1004 900 Z" />
+      </g>
+      <g fill="none" stroke="#dff0e6" strokeWidth="2.5" opacity="0.55">
+        <path d="M 430 620 L 1010 620 L 1140 900 L 300 900 Z" />
+        <line x1="365" y1="760" x2="1075" y2="760" />
+        <ellipse cx="720" cy="760" rx="86" ry="30" />
+        <path d="M 600 900 L 620 818 L 820 818 L 840 900" />
+      </g>
+    </svg>
+  );
+}
+
 function Landing({ feeds, onEnter, totalLive }) {
   return (
     <div className="landing" style={accentVarsFrom(LANDING_ACCENT.accent, LANDING_ACCENT.accent2)}>
-      <div className="landing-glow" aria-hidden="true" />
+      <HeroStadium />
+      <div className="landing-veil" aria-hidden="true" />
       <LiveTicker feeds={feeds} onSelect={(event) => onEnter(event.sportId)} />
 
-      <header className="landing-hero">
-        <div className="hero-mark" aria-hidden="true">
-          <Trophy />
-        </div>
-        <h1>
-          BRNDN <span className="brand-accent">Sports</span> Tracker
-        </h1>
-        <p className="hero-tagline">
-          Live scores, Vegas lines, win probability and deep stats across every major sport — all on one screen.
-        </p>
-        <button className="hero-cta" type="button" onClick={() => onEnter()}>
-          Enter Live Tracker
-          <ArrowRight aria-hidden="true" />
-        </button>
-        <p className="hero-meta">
-          <span className="hero-live-dot" aria-hidden="true" />
-          {totalLive ? `${totalLive} games live right now` : "Auto-refreshing live feeds"} · 8 sports · free & real-time
-        </p>
-      </header>
+      <div className="landing-body">
+        <header className="landing-hero">
+          <div className="hero-mark" aria-hidden="true">
+            <Trophy />
+          </div>
+          <h1 className="hero-title">BRNDN</h1>
+          <p className="hero-subtitle">Sports Tracker</p>
+          <p className="hero-tagline">
+            Live scores, Vegas lines, win probability and deep stats across every major sport — all on one screen.
+          </p>
+          <button className="hero-cta" type="button" onClick={() => onEnter()}>
+            Enter Live Tracker
+            <ArrowRight aria-hidden="true" />
+          </button>
+          <p className="hero-meta">
+            <span className="hero-live-dot" aria-hidden="true" />
+            {totalLive ? `${totalLive} games live right now` : "Auto-refreshing live feeds"} · 8 sports · free & real-time
+          </p>
+        </header>
 
-      <section className="hero-sports" aria-label="Popular sports">
-        {POPULAR_SPORTS.map((sportId) => {
-          const sport = sportById(sportId);
-          const feed = feeds[sportId] || emptyFeed(sport);
-          const theme = themeFor(sportId);
-          return (
-            <button
-              className="hero-sport-card"
-              key={sportId}
-              type="button"
-              style={accentVarsFrom(theme.accent, theme.accent2)}
-              onClick={() => onEnter(sportId)}
-            >
-              <span className="hsc-icon" aria-hidden="true">{theme.icon}</span>
-              <span className="hsc-label">{sport.label}</span>
-              <span className="hsc-meta">
-                {feed.summary.live ? (
-                  <span className="hsc-live">
-                    <span className="mini-dot" aria-hidden="true" /> {feed.summary.live} live
-                  </span>
-                ) : (
-                  <span className="hsc-count">{feed.summary.total} events</span>
-                )}
-              </span>
-              <ArrowRight className="hsc-arrow" aria-hidden="true" />
-            </button>
-          );
-        })}
-      </section>
+        <section className="hero-sports" aria-label="Popular sports">
+          {POPULAR_SPORTS.map((sportId) => {
+            const sport = sportById(sportId);
+            const feed = feeds[sportId] || emptyFeed(sport);
+            const theme = themeFor(sportId);
+            return (
+              <button
+                className="hero-sport-card"
+                key={sportId}
+                type="button"
+                style={accentVarsFrom(theme.accent, theme.accent2)}
+                onClick={() => onEnter(sportId)}
+              >
+                <span className="hsc-icon" aria-hidden="true">{theme.icon}</span>
+                <span className="hsc-label">{sport.label}</span>
+                <span className="hsc-meta">
+                  {feed.summary.live ? (
+                    <span className="hsc-live">
+                      <span className="mini-dot" aria-hidden="true" /> {feed.summary.live} live
+                    </span>
+                  ) : (
+                    <span className="hsc-count">{feed.summary.total} events</span>
+                  )}
+                </span>
+                <ArrowRight className="hsc-arrow" aria-hidden="true" />
+              </button>
+            );
+          })}
+        </section>
+      </div>
 
       <footer className="landing-foot">
         Tap any score above or a sport to jump straight into live tracking.
