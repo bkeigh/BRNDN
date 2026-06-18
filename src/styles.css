@@ -206,12 +206,6 @@ button {
   color: transparent;
 }
 
-.brand-lockup p {
-  margin: 7px 0 0;
-  color: var(--muted);
-  font-size: 0.88rem;
-}
-
 .feed-controls {
   display: flex;
   align-items: center;
@@ -974,7 +968,7 @@ button {
   stroke-width: 2;
   stroke-linecap: round;
   stroke-dasharray: 8 10;
-  filter: drop-shadow(0 0 5px var(--accent-glow));
+  filter: drop-shadow(0 0 3px var(--accent-glow));
   animation: rail-flow 3.4s linear infinite;
 }
 
@@ -1882,7 +1876,21 @@ button {
 }
 
 .brand-text {
+  display: grid;
+  gap: 1px;
   min-width: 0;
+}
+
+.brand-sub {
+  padding-right: 0.16em;
+  font-size: 0.86rem;
+  font-weight: 850;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  background: linear-gradient(110deg, var(--accent), var(--accent-2));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 
 .icon-button {
@@ -2286,12 +2294,20 @@ button {
 .detail-team .flag-placeholder {
   width: 44px;
   height: 44px;
+  flex: 0 0 auto;
+}
+
+.detail-team > div {
+  min-width: 0;
 }
 
 .detail-team strong {
   display: block;
+  overflow: hidden;
   font-size: 1.05rem;
   font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .detail-team small {
@@ -2762,33 +2778,84 @@ button {
 /* ═══════════════════════ Landing / hero ═══════════════════════ */
 .landing {
   position: relative;
-  width: min(1180px, 100%);
   min-height: 100vh;
-  margin: 0 auto;
-  padding: 22px 22px 64px;
-  display: grid;
-  align-content: start;
-  gap: 26px;
+  min-height: 100dvh;
+  padding: 20px 22px calc(40px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   isolation: isolate;
 }
 
-.landing-glow {
+/* Soccer-stadium background */
+.hero-stadium {
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.stadium-lamp {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: lamp-flicker 6s ease-in-out infinite;
+}
+
+/* Legibility veil + accent wash over the stadium */
+.landing-veil {
   position: fixed;
   inset: 0;
   z-index: -1;
   pointer-events: none;
   background:
-    radial-gradient(circle at 20% 0%, var(--accent-soft), transparent 42%),
-    radial-gradient(circle at 85% 8%, rgba(255, 209, 95, 0.1), transparent 40%),
-    radial-gradient(ellipse 80% 60% at 50% 110%, var(--accent-glow), transparent 70%);
+    radial-gradient(ellipse 70% 55% at 50% 42%, rgba(6, 11, 24, 0.82), rgba(6, 11, 24, 0.42) 60%, transparent 80%),
+    radial-gradient(ellipse 90% 60% at 50% 120%, var(--accent-glow), transparent 65%),
+    linear-gradient(180deg, rgba(6, 11, 24, 0.5), transparent 30%, rgba(6, 11, 24, 0.35));
+}
+
+/* Vertically-centered hero content between the ticker and footer */
+.landing-body {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: clamp(28px, 5vh, 52px);
+  padding: 24px 0;
 }
 
 .landing-hero {
   display: grid;
   justify-items: center;
   text-align: center;
-  gap: 14px;
-  padding: clamp(28px, 6vw, 72px) 16px 12px;
+  gap: 12px;
+  max-width: 720px;
+}
+
+.hero-title,
+.hero-subtitle {
+  margin: 0;
+}
+
+.hero-title {
+  font-size: clamp(2.8rem, 1.6rem + 6vw, 6rem);
+  font-weight: 900;
+  line-height: 0.95;
+  letter-spacing: -0.04em;
+  text-shadow: 0 6px 40px rgba(0, 0, 0, 0.6);
+}
+
+.hero-subtitle {
+  font-size: clamp(1.2rem, 0.9rem + 1.6vw, 2.2rem);
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  background: linear-gradient(110deg, var(--accent), var(--accent-2));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 
 .hero-mark {
@@ -2810,20 +2877,12 @@ button {
   height: 38px;
 }
 
-.landing-hero h1 {
-  margin: 6px 0 0;
-  font-size: clamp(2.2rem, 1.4rem + 4vw, 4.4rem);
-  font-weight: 850;
-  line-height: 1;
-  letter-spacing: -0.03em;
-}
-
 .hero-tagline {
-  max-width: 620px;
-  margin: 0;
+  max-width: 560px;
+  margin: 4px 0 0;
   color: var(--muted);
-  font-size: clamp(0.98rem, 0.9rem + 0.4vw, 1.2rem);
-  line-height: 1.5;
+  font-size: clamp(0.96rem, 0.9rem + 0.4vw, 1.15rem);
+  line-height: 1.55;
 }
 
 .hero-cta {
@@ -2973,6 +3032,13 @@ button {
 
 @keyframes float {
   50% { transform: translateY(-8px); }
+}
+
+@keyframes lamp-flicker {
+  0%, 100% { opacity: 1; }
+  48% { opacity: 0.82; }
+  52% { opacity: 1; }
+  70% { opacity: 0.9; }
 }
 
 /* Ticker: when there are too few items to fill the row, don't scroll (avoids blank gaps). */
@@ -3449,9 +3515,13 @@ body.is-locked .bottom-nav {
 .vg-ou,
 .vg-spread,
 .vg-ml {
+  min-width: 0;
+  overflow: hidden;
   font-size: 0.82rem;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .vg-ou {
