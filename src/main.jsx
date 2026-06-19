@@ -12,7 +12,6 @@ import {
   Crown,
   DollarSign,
   ExternalLink,
-  FlaskConical,
   HeartPulse,
   Home,
   LayoutGrid,
@@ -1317,7 +1316,7 @@ function StandingsGroup({ group }) {
   );
 }
 
-function StandingsPanel({ sport }) {
+function StandingsPanel({ sport, defaultOpen = false }) {
   const { loading, data: groups } = useCachedSportData(
     sport,
     standingsUrlForSport,
@@ -1327,7 +1326,7 @@ function StandingsPanel({ sport }) {
   );
 
   return (
-    <Collapsible title="Standings" icon={ListOrdered} defaultOpen={false}>
+    <Collapsible title="Standings" icon={ListOrdered} defaultOpen={defaultOpen}>
       {loading ? (
         <LabSkeleton rows={5} />
       ) : groups.length ? (
@@ -1343,7 +1342,7 @@ function StandingsPanel({ sport }) {
   );
 }
 
-function LeadersPanel({ sport }) {
+function LeadersPanel({ sport, defaultOpen = false }) {
   const { loading, data: categories } = useCachedSportData(
     sport,
     leadersUrlForSport,
@@ -1355,7 +1354,7 @@ function LeadersPanel({ sport }) {
   const visible = showAll ? categories : categories.slice(0, 6);
 
   return (
-    <Collapsible title="League Leaders" icon={Crown} defaultOpen={false}>
+    <Collapsible title="League Leaders" icon={Crown} defaultOpen={defaultOpen}>
       {loading ? (
         <LabSkeleton rows={4} />
       ) : categories.length ? (
@@ -1456,31 +1455,6 @@ function ReferencesPanel({ sport }) {
         ))}
       </div>
     </Collapsible>
-  );
-}
-
-function StatsLab({ feed, onSelect }) {
-  const sport = feed.sport;
-  const showOdds = sportHasOddsBoard(sport);
-  const showStandings = sportHasStandings(sport);
-  const showLeaders = sportHasLeaders(sport);
-
-  return (
-    <section className="stats-lab" aria-label={`${sport.label} deep stats`}>
-      <div className="lab-banner">
-        <span className="lab-banner-icon" aria-hidden="true">
-          <FlaskConical />
-        </span>
-        <div>
-          <strong>Stats Lab · {sport.label}</strong>
-          <small>Vegas lines, standings, leaders & reference links — for the stats nerds</small>
-        </div>
-      </div>
-      {showOdds ? <VegasPanel feed={feed} onSelect={onSelect} /> : null}
-      {showStandings ? <StandingsPanel sport={sport} /> : null}
-      {showLeaders ? <LeadersPanel sport={sport} /> : null}
-      <ReferencesPanel sport={sport} />
-    </section>
   );
 }
 
@@ -2193,6 +2167,17 @@ function App() {
             <StatCard icon={Clock3} label="Upcoming" value={activeFeed.summary.upcoming} tone="blue" />
           </section>
 
+          {/* Promoted team & player stats: surfaced right under the live score
+              (previously buried at the bottom of the collapsed Stats Lab). Each
+              panel is gated so sports without the data don't render an empty
+              tile — e.g. Tennis has neither, Golf has leaders but no standings. */}
+          {sportHasStandings(activeFeed.sport) ? (
+            <StandingsPanel sport={activeFeed.sport} defaultOpen />
+          ) : null}
+          {sportHasLeaders(activeFeed.sport) ? (
+            <LeadersPanel sport={activeFeed.sport} defaultOpen />
+          ) : null}
+
           <div className="main-grid">
             {activeFeed.sport.id === "fifa" ? (
               <BracketBoard rounds={rounds} open={bracketOpen} onToggle={() => setBracketOpen((v) => !v)} onSelect={selectEvent} />
@@ -2202,9 +2187,14 @@ function App() {
             <InfoPanel feed={activeFeed} onSelect={selectEvent} />
           </div>
 
+          {/* Odds, then headlines, then external references at the foot. */}
+          {sportHasOddsBoard(activeFeed.sport) ? (
+            <VegasPanel feed={activeFeed} onSelect={selectEvent} />
+          ) : null}
+
           <NewsSection sport={activeFeed.sport} />
 
-          <StatsLab feed={activeFeed} onSelect={selectEvent} />
+          <ReferencesPanel sport={activeFeed.sport} />
         </div>
       </main>
 
