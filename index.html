@@ -4,15 +4,59 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#060912" />
-    <meta name="description" content="BRNDN Sports Tracker — live scores, betting lines, team & player stats across NFL, MLB, NHL, NBA, FIFA, MLS, Tennis and Golf." />
+    <meta name="description" content="BRNDN Sports Tracker — live scores, Vegas betting lines (over/unders, spreads, moneylines), win probability & deep stats across NFL, MLB, NHL, NBA, FIFA, MLS, Tennis and Golf." />
+    <meta name="robots" content="index,follow" />
+    <!-- NOTE: update the domain below if you connect a custom domain in Netlify. -->
+    <link rel="canonical" href="https://brndn.netlify.app/" />
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="BRNDN Sports Tracker" />
+    <meta property="og:title" content="BRNDN Sports Tracker — Live Scores, Odds & Stats" />
+    <meta property="og:description" content="Live scores, Vegas betting lines, win probability and deep stats across NFL, MLB, NHL, NBA, FIFA, MLS, Tennis and Golf — all on one screen." />
+    <meta property="og:url" content="https://brndn.netlify.app/" />
+    <meta property="og:image" content="https://brndn.netlify.app/og.svg" />
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="BRNDN Sports Tracker — Live Scores, Odds & Stats" />
+    <meta name="twitter:description" content="Live scores, Vegas betting lines, win probability and stats across 8 major sports." />
+    <meta name="twitter:image" content="https://brndn.netlify.app/og.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Barlow:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
     <link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="12" fill="%2307181f"/><circle cx="32" cy="32" r="20" fill="%23f8d34b"/><path d="M20 32h24M32 20v24M24 24l16 16M40 24 24 40" stroke="%2307181f" stroke-width="5" stroke-linecap="round"/></svg>' />
-    <title>BRNDN Sports Tracker</title>
+    <title>BRNDN Sports Tracker — Live Scores, Odds & Stats</title>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "BRNDN Sports Tracker",
+        "url": "https://brndn.netlify.app/",
+        "applicationCategory": "SportsApplication",
+        "operatingSystem": "Web",
+        "description": "Live scores, Vegas betting lines, win probability and deep stats across NFL, MLB, NHL, NBA, FIFA, MLS, Tennis and Golf.",
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>
+    <noscript>
+      <main style="max-width:760px;margin:0 auto;padding:48px 22px;font-family:system-ui,sans-serif;color:#eef4fb;background:#060912;">
+        <h1>BRNDN Sports Tracker</h1>
+        <p>
+          Live scores, Vegas betting lines (over/unders, spreads, moneylines), win probability, and
+          deep team &amp; player stats across NFL, MLB, NHL, NBA, the FIFA World Cup, MLS, Tennis and
+          Golf — all on one screen, auto-refreshing in real time.
+        </p>
+        <p>BRNDN requires JavaScript. Please enable it to use the live tracker.</p>
+        <p>For entertainment only · 21+ · Gambling problem? Call 1-800-GAMBLER.</p>
+        <p>
+          <a href="/privacy.html" style="color:#5ad9ff;">Privacy</a> ·
+          <a href="/terms.html" style="color:#5ad9ff;">Terms</a> ·
+          <a href="/responsible-gaming.html" style="color:#5ad9ff;">Responsible Gaming</a>
+        </p>
+      </main>
+    </noscript>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
