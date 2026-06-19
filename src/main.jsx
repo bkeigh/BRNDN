@@ -75,6 +75,53 @@ const BRACKET_TOP = 100;
 const THIRD_PLACE_GAP = 76;
 const THIRD_PLACE_LABEL_HEIGHT = 26;
 
+// --- Client-side routing: /<sportId> <-> app state (no router dependency) -----
+const SITE_URL = "https://brndn.app";
+const SPORT_IDS = new Set(SPORTS.map((sport) => sport.id));
+
+// Map a pathname to route state. "/" (or anything unknown) => landing.
+function parseRoute(pathname) {
+  const slug = String(pathname || "/").replace(/^\/+|\/+$/g, "").toLowerCase();
+  if (slug && SPORT_IDS.has(slug)) return { entered: true, sportId: slug };
+  return { entered: false, sportId: null };
+}
+
+function pushPath(path) {
+  if (typeof window === "undefined") return;
+  if (window.location.pathname !== path) {
+    window.history.pushState({}, "", path);
+  }
+}
+
+function setMetaTag(selector, attr, value) {
+  if (typeof document === "undefined") return;
+  const el = document.head.querySelector(selector);
+  if (el) el.setAttribute(attr, value);
+}
+
+// Per-route <title> + canonical/social meta. NOTE: this runs client-side, so
+// JS-rendering crawlers (Googlebot) see it, but non-rendering social scrapers
+// (Facebook/Slack/X) still read the static index.html OG tags. True per-route
+// social cards would require build-time prerendering of each /sport route.
+function updateRouteSeo(sport) {
+  if (typeof document === "undefined") return;
+  const title = sport
+    ? `${sport.label} Live Scores, Odds & Stats · BRNDN`
+    : "BRNDN Sports Tracker — Live Scores, Odds & Stats";
+  const description = sport
+    ? `Live ${sport.name} scores, Vegas betting lines, win probability, standings and player stats — auto-refreshing in real time on BRNDN.`
+    : "Live scores, Vegas betting lines, win probability and deep stats across NFL, MLB, NHL, NBA, FIFA, MLS, Tennis and Golf — all on one screen.";
+  const url = sport ? `${SITE_URL}/${sport.id}` : `${SITE_URL}/`;
+  document.title = title;
+  setMetaTag('link[rel="canonical"]', "href", url);
+  setMetaTag('meta[name="description"]', "content", description);
+  setMetaTag('meta[property="og:title"]', "content", title);
+  setMetaTag('meta[property="og:description"]', "content", description);
+  setMetaTag('meta[property="og:url"]', "content", url);
+  setMetaTag('meta[name="twitter:title"]', "content", title);
+  setMetaTag('meta[name="twitter:description"]', "content", description);
+}
+
 // Visual metadata per sport: glyph + accent color drives the live theme.
 // Accents are spread around the hue wheel so no two sports read as the same color.
 const SPORT_THEME = {
@@ -2048,10 +2095,11 @@ function ConsentBanner({ open, onChoose }) {
 
 function App() {
   const { feeds, lastUpdated, nextRefreshAt, refreshing, refresh } = useSportsFeeds();
-  const [entered, setEntered] = useState(false);
+  const initialRoute = parseRoute(typeof window === "undefined" ? "/" : window.location.pathname);
+  const [entered, setEntered] = useState(initialRoute.entered);
   const [ageOk, setAgeOk] = useState(hasAgeAck);
   const [consentOpen, setConsentOpen] = useState(() => !hasConsentDecision());
-  const [activeSportId, setActiveSportId] = useState(DEFAULT_SPORT_ID);
+  const [activeSportId, setActiveSportId] = useState(initialRoute.sportId || DEFAULT_SPORT_ID);
   const [selectedRef, setSelectedRef] = useState(null);
   const [navOpen, setNavOpen] = useState(false);
   // Bracket takes a lot of space — start collapsed on phones, open on desktop.
@@ -2102,11 +2150,53 @@ function App() {
     track("app_open");
   }, []);
 
-  const enterApp = useCallback((sportId) => {
-    if (sportId) setActiveSportId(sportId);
+  // Sync browser back/forward with the active route (/sportId <-> state).
+  useEffect(() => {
+    const onPop = () => {
+      const route = parseRoute(window.location.pathname);
+      setEntered(route.entered);
+      if (route.sportId) setActiveSportId(route.sportId);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  // Normalize an unknown deep link (e.g. /foo) back to the landing URL once.
+  useEffect(() => {
+    if (typeof window !== "undefined" && !initialRoute.entered && window.location.pathname !== "/") {
+      window.history.replaceState({}, "", "/");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Keep document <title> + canonical/social meta in sync with the route.
+  useEffect(() => {
+    updateRouteSeo(entered ? activeSport : null);
+  }, [entered, activeSportId, activeSport]);
+
+  // Switch sports from inside the tracker (tabs/drawer): update state + URL.
+  const selectSport = useCallback((sportId) => {
+    setActiveSportId(sportId);
     setEntered(true);
-    track("enter_tracker", sportId ? { sport: sportId } : undefined);
-    window.scrollTo({ top: 0, behavior: "auto" });
+    pushPath(`/${sportId}`);
+    track("select_sport", { sport: sportId });
+  }, []);
+
+  const enterApp = useCallback(
+    (sportId) => {
+      const target = sportId || activeSportId;
+      setActiveSportId(target);
+      setEntered(true);
+      pushPath(`/${target}`);
+      track("enter_tracker", sportId ? { sport: sportId } : undefined);
+      window.scrollTo({ top: 0, behavior: "auto" });
+    },
+    [activeSportId],
+  );
+
+  const goHome = useCallback(() => {
+    setEntered(false);
+    pushPath("/");
   }, []);
 
   const chooseConsent = useCallback((granted) => {
@@ -2142,7 +2232,7 @@ function App() {
         nextRefreshAt={nextRefreshAt}
         onRefresh={refresh}
         liveCount={totalLive}
-        onHome={() => setEntered(false)}
+        onHome={goHome}
       />
 
       <LiveTicker feeds={feeds} onSelect={selectEvent} />
@@ -2155,7 +2245,7 @@ function App() {
       ) : null}
 
       <main className="dashboard-layout">
-        <SportsTabs activeSportId={activeSportId} feeds={feeds} onSelect={setActiveSportId} />
+        <SportsTabs activeSportId={activeSportId} feeds={feeds} onSelect={selectSport} />
 
         <div className="sport-content" key={activeSportId}>
           <LiveCommandCenter feed={activeFeed} onSelect={selectEvent} />
@@ -2201,7 +2291,7 @@ function App() {
       <SiteFooter />
 
       <BottomNav
-        onHome={() => setEntered(false)}
+        onHome={goHome}
         onTop={scrollToTop}
         onMenu={() => setNavOpen(true)}
         onRefresh={refresh}
@@ -2212,7 +2302,7 @@ function App() {
         open={navOpen}
         activeSportId={activeSportId}
         feeds={feeds}
-        onSelect={setActiveSportId}
+        onSelect={selectSport}
         onClose={() => setNavOpen(false)}
       />
 
