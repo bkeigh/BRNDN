@@ -90,10 +90,11 @@ function parseRoute(pathname) {
   return { entered: false, sportId: null };
 }
 
-function pushPath(path) {
+function pushPath(path, replace = false) {
   if (typeof window === "undefined") return;
   if (window.location.pathname !== path) {
-    window.history.pushState({}, "", path);
+    if (replace) window.history.replaceState({}, "", path);
+    else window.history.pushState({}, "", path);
   }
 }
 
@@ -1575,8 +1576,14 @@ function ReferencesPanel({ sport }) {
 // best->worst seat ranking so the layout is reviewable.
 function TicketsPanel({ feed }) {
   const upcoming = useMemo(() => getNextMatches(feed.events, new Date(), 5), [feed.events]);
-  const ranked = useMemo(() => rankSeats(SAMPLE_SEATS), []);
   const showPreview = !TICKETS_ENABLED && Boolean(import.meta.env && import.meta.env.DEV);
+  // Reference the statically-false import.meta.env.DEV DIRECTLY (not via the
+  // showPreview const) so the bundler folds the branch and tree-shakes
+  // SAMPLE_SEATS + rankSeats out of the production bundle.
+  const ranked = useMemo(
+    () => (import.meta.env.DEV && !TICKETS_ENABLED ? rankSeats(SAMPLE_SEATS) : []),
+    [],
+  );
 
   return (
     <Collapsible title="Tickets" icon={Ticket} badge="Soon" defaultOpen={false}>
@@ -2300,6 +2307,21 @@ function App() {
     updateRouteSeo(entered ? activeSport : null);
   }, [entered, activeSportId, activeSport]);
 
+  // Close any open game modal when the active sport changes (tabs, drawer, or
+  // browser back/forward) so a stale modal from the previous sport can't linger.
+  useEffect(() => {
+    setSelectedRef(null);
+  }, [activeSportId]);
+
+  // Returning to the landing (Home or browser Back) must release any overlay,
+  // else the body-scroll lock stays stranded with no visible way to clear it.
+  useEffect(() => {
+    if (!entered) {
+      setSelectedRef(null);
+      setNavOpen(false);
+    }
+  }, [entered]);
+
   // Switch sports from inside the tracker (tabs/drawer): update state + URL.
   const selectSport = useCallback((sportId) => {
     setActiveSportId(sportId);
@@ -2322,7 +2344,7 @@ function App() {
 
   const goHome = useCallback(() => {
     setEntered(false);
-    pushPath("/");
+    pushPath("/", true); // replace, don't stack, when returning to the landing
   }, []);
 
   const chooseConsent = useCallback((granted) => {
