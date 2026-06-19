@@ -3260,6 +3260,122 @@ body.is-locked .bottom-nav {
   font-size: 0.72rem;
 }
 
+/* ===== Tickets (Ticketmaster scaffold) =================================== */
+.tickets-intro {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.tickets-games {
+  display: grid;
+  gap: 8px;
+}
+
+.tickets-game {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--panel);
+  border: 1px solid var(--stroke);
+  border-radius: 12px;
+}
+
+.tg-head {
+  display: grid;
+  gap: 2px;
+}
+
+.tg-head strong {
+  font-size: 0.92rem;
+}
+
+.tg-head small {
+  color: var(--muted-2);
+  font-size: 0.76rem;
+}
+
+.tickets-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  padding: 8px 12px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--stroke-2);
+  border-radius: 999px;
+  font-weight: 800;
+  font-size: 0.8rem;
+  cursor: not-allowed;
+}
+
+.tickets-cta svg {
+  width: 15px;
+  height: 15px;
+}
+
+.tickets-rank {
+  margin-top: 12px;
+  display: grid;
+  gap: 4px;
+}
+
+.tickets-rank-head {
+  color: var(--muted-2);
+  font-size: 0.74rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.tickets-seat {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--panel);
+  border: 1px solid var(--stroke);
+  border-radius: 10px;
+}
+
+.ts-rank {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 800;
+  font-size: 0.76rem;
+}
+
+.ts-tier {
+  font-weight: 700;
+  font-size: 0.86rem;
+}
+
+.ts-tier em {
+  color: var(--muted-2);
+  font-style: normal;
+}
+
+.ts-price {
+  font-weight: 850;
+  color: var(--accent);
+}
+
+.tickets-note {
+  display: block;
+  margin-top: 10px;
+  color: var(--muted-2);
+  font-size: 0.74rem;
+}
+
 .lab-banner {
   display: flex;
   align-items: center;

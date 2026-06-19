@@ -24,6 +24,7 @@ import {
   RefreshCw,
   Shield,
   Sparkles,
+  Ticket,
   Trophy,
   Users,
   X,
@@ -63,6 +64,7 @@ import {
 } from "./consent.js";
 import { initAnalytics, track } from "./analytics.js";
 import { AD_PLACEMENTS, adsConsented, creativeFor, geoAllows } from "./ads.js";
+import { SAMPLE_SEATS, TICKETS_ENABLED, TIER_LABEL, rankSeats } from "./tickets.js";
 import "./styles.css";
 
 const REFRESH_INTERVAL_MS = 60_000;
@@ -1565,6 +1567,69 @@ function ReferencesPanel({ sport }) {
   );
 }
 
+/* ───────────────────────── Tickets (Ticketmaster scaffold) ───────────────────────── */
+
+// Per-sport ticket discovery. UI + ranking only — live pricing needs a
+// serverless proxy to the Ticketmaster Discovery API (see tickets.js). Shows
+// real upcoming games with a disabled CTA; in dev it also renders a sample
+// best->worst seat ranking so the layout is reviewable.
+function TicketsPanel({ feed }) {
+  const upcoming = useMemo(() => getNextMatches(feed.events, new Date(), 5), [feed.events]);
+  const ranked = useMemo(() => rankSeats(SAMPLE_SEATS), []);
+  const showPreview = !TICKETS_ENABLED && Boolean(import.meta.env && import.meta.env.DEV);
+
+  return (
+    <Collapsible title="Tickets" icon={Ticket} badge="Soon" defaultOpen={false}>
+      <p className="tickets-intro">
+        Best-available seats for upcoming {feed.sport.label} games, ranked best to worst by
+        seat tier and price — powered by Ticketmaster.
+      </p>
+
+      {upcoming.length ? (
+        <div className="tickets-games">
+          {upcoming.map((event) => (
+            <div className="tickets-game" key={event.id}>
+              <div className="tg-head">
+                <strong>{event.title}</strong>
+                <small>
+                  {formatKickoff(event.date)}
+                  {event.city ? ` · ${event.city}` : event.venue ? ` · ${event.venue}` : ""}
+                </small>
+              </div>
+              <button className="tickets-cta" type="button" disabled aria-disabled="true">
+                <Ticket aria-hidden="true" /> View tickets (soon)
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="detail-empty">No upcoming {feed.sport.label} games to ticket right now.</p>
+      )}
+
+      {showPreview ? (
+        <div className="tickets-rank">
+          <span className="tickets-rank-head">Sample seat ranking (dev preview)</span>
+          {ranked.map((seat, index) => (
+            <div className="tickets-seat" key={`${seat.tier}-${seat.section}`}>
+              <span className="ts-rank">{index + 1}</span>
+              <span className="ts-tier">
+                {TIER_LABEL[seat.tier] || seat.tier}
+                <em> · {seat.section}</em>
+              </span>
+              <span className="ts-price">${seat.priceUsd}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      <small className="tickets-note">
+        Live pricing &amp; seat ranking require the Ticketmaster Discovery API via a serverless
+        proxy. BRNDN may earn a commission from ticket links.
+      </small>
+    </Collapsible>
+  );
+}
+
 /* ───────────────────────── Game detail modal ───────────────────────── */
 
 function WinProbability({ event, prob }) {
@@ -2338,10 +2403,12 @@ function App() {
             <InfoPanel feed={activeFeed} onSelect={selectEvent} />
           </div>
 
-          {/* Odds, then headlines, then external references at the foot. */}
+          {/* Odds, then tickets, then headlines, then external references. */}
           {sportHasOddsBoard(activeFeed.sport) ? (
             <VegasPanel feed={activeFeed} onSelect={selectEvent} />
           ) : null}
+
+          <TicketsPanel feed={activeFeed} />
 
           <NewsSection sport={activeFeed.sport} />
 
