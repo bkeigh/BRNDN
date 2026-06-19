@@ -12,7 +12,6 @@ import {
   Crown,
   DollarSign,
   ExternalLink,
-  FlaskConical,
   HeartPulse,
   Home,
   LayoutGrid,
@@ -25,6 +24,7 @@ import {
   RefreshCw,
   Shield,
   Sparkles,
+  Ticket,
   Trophy,
   Users,
   X,
@@ -60,8 +60,11 @@ import {
   onConsentReopen,
   requestConsentReopen,
   setConsent,
+  whenConsented,
 } from "./consent.js";
 import { initAnalytics, track } from "./analytics.js";
+import { AD_PLACEMENTS, adsConsented, creativeFor, geoAllows } from "./ads.js";
+import { SAMPLE_SEATS, TICKETS_ENABLED, TIER_LABEL, rankSeats } from "./tickets.js";
 import "./styles.css";
 
 const REFRESH_INTERVAL_MS = 60_000;
@@ -75,6 +78,53 @@ const BRACKET_STEP = 220;
 const BRACKET_TOP = 100;
 const THIRD_PLACE_GAP = 76;
 const THIRD_PLACE_LABEL_HEIGHT = 26;
+
+// --- Client-side routing: /<sportId> <-> app state (no router dependency) -----
+const SITE_URL = "https://brndn.app";
+const SPORT_IDS = new Set(SPORTS.map((sport) => sport.id));
+
+// Map a pathname to route state. "/" (or anything unknown) => landing.
+function parseRoute(pathname) {
+  const slug = String(pathname || "/").replace(/^\/+|\/+$/g, "").toLowerCase();
+  if (slug && SPORT_IDS.has(slug)) return { entered: true, sportId: slug };
+  return { entered: false, sportId: null };
+}
+
+function pushPath(path) {
+  if (typeof window === "undefined") return;
+  if (window.location.pathname !== path) {
+    window.history.pushState({}, "", path);
+  }
+}
+
+function setMetaTag(selector, attr, value) {
+  if (typeof document === "undefined") return;
+  const el = document.head.querySelector(selector);
+  if (el) el.setAttribute(attr, value);
+}
+
+// Per-route <title> + canonical/social meta. NOTE: this runs client-side, so
+// JS-rendering crawlers (Googlebot) see it, but non-rendering social scrapers
+// (Facebook/Slack/X) still read the static index.html OG tags. True per-route
+// social cards would require build-time prerendering of each /sport route.
+function updateRouteSeo(sport) {
+  if (typeof document === "undefined") return;
+  const title = sport
+    ? `${sport.label} Live Scores, Odds & Stats · BRNDN`
+    : "BRNDN Sports Tracker — Live Scores, Odds & Stats";
+  const description = sport
+    ? `Live ${sport.name} scores, Vegas betting lines, win probability, standings and player stats — auto-refreshing in real time on BRNDN.`
+    : "Live scores, Vegas betting lines, win probability and deep stats across NFL, MLB, NHL, NBA, FIFA, MLS, Tennis and Golf — all on one screen.";
+  const url = sport ? `${SITE_URL}/${sport.id}` : `${SITE_URL}/`;
+  document.title = title;
+  setMetaTag('link[rel="canonical"]', "href", url);
+  setMetaTag('meta[name="description"]', "content", description);
+  setMetaTag('meta[property="og:title"]', "content", title);
+  setMetaTag('meta[property="og:description"]', "content", description);
+  setMetaTag('meta[property="og:url"]', "content", url);
+  setMetaTag('meta[name="twitter:title"]', "content", title);
+  setMetaTag('meta[name="twitter:description"]', "content", description);
+}
 
 // Visual metadata per sport: glyph + accent color drives the live theme.
 // Accents are spread around the hue wheel so no two sports read as the same color.
@@ -1317,7 +1367,7 @@ function StandingsGroup({ group }) {
   );
 }
 
-function StandingsPanel({ sport }) {
+function StandingsPanel({ sport, defaultOpen = false }) {
   const { loading, data: groups } = useCachedSportData(
     sport,
     standingsUrlForSport,
@@ -1327,7 +1377,7 @@ function StandingsPanel({ sport }) {
   );
 
   return (
-    <Collapsible title="Standings" icon={ListOrdered} defaultOpen={false}>
+    <Collapsible title="Standings" icon={ListOrdered} defaultOpen={defaultOpen}>
       {loading ? (
         <LabSkeleton rows={5} />
       ) : groups.length ? (
@@ -1343,7 +1393,7 @@ function StandingsPanel({ sport }) {
   );
 }
 
-function LeadersPanel({ sport }) {
+function LeadersPanel({ sport, defaultOpen = false }) {
   const { loading, data: categories } = useCachedSportData(
     sport,
     leadersUrlForSport,
@@ -1355,7 +1405,7 @@ function LeadersPanel({ sport }) {
   const visible = showAll ? categories : categories.slice(0, 6);
 
   return (
-    <Collapsible title="League Leaders" icon={Crown} defaultOpen={false}>
+    <Collapsible title="League Leaders" icon={Crown} defaultOpen={defaultOpen}>
       {loading ? (
         <LabSkeleton rows={4} />
       ) : categories.length ? (
@@ -1390,6 +1440,61 @@ function LeadersPanel({ sport }) {
   );
 }
 
+// Reusable sportsbook ad / affiliate slot. Inert in production until advertising
+// consent + a configured creative + geo-eligibility all pass (see ads.js). In
+// dev it renders a labeled placeholder so placements are visible while building.
+function AdSlot({ placement, label }) {
+  const [consented, setConsented] = useState(() => adsConsented());
+
+  useEffect(() => {
+    if (consented) return undefined;
+    return whenConsented("advertising", () => setConsented(true));
+  }, [consented]);
+
+  const creative = creativeFor(placement);
+  const showCreative = consented && creative && geoAllows(creative);
+
+  if (showCreative) {
+    return (
+      <aside className="ad-slot ad-slot-live" data-placement={placement} aria-label="Sponsored offer">
+        <a
+          className="ad-cta"
+          href={creative.href}
+          target="_blank"
+          rel="sponsored nofollow noopener noreferrer"
+          onClick={() => track("ad_click", { placement, book: creative.book })}
+        >
+          <span className="ad-book">{creative.book}</span>
+          <span className="ad-headline">{creative.headline}</span>
+          <span className="ad-action">
+            {creative.cta} <ArrowRight aria-hidden="true" />
+          </span>
+        </a>
+        <small className="ad-disclosure">
+          Ad · 21+ · {creative.book} where legal · Gambling problem? Call 1-800-GAMBLER
+        </small>
+      </aside>
+    );
+  }
+
+  // Dev-only placeholder; never shipped to production (import.meta.env.DEV).
+  if (import.meta.env && import.meta.env.DEV) {
+    const reason = !consented
+      ? "awaiting advertising consent"
+      : !creative
+        ? "no creative configured"
+        : "geo-gated (fail-closed)";
+    return (
+      <aside className="ad-slot ad-slot-placeholder" data-placement={placement} aria-hidden="true">
+        <span>Ad slot · {label || placement}</span>
+        <small>{reason}</small>
+      </aside>
+    );
+  }
+
+  return null;
+}
+
 function VegasPanel({ feed, onSelect }) {
   const candidates = useMemo(() => {
     const now = new Date();
@@ -1404,6 +1509,7 @@ function VegasPanel({ feed, onSelect }) {
       {loading ? (
         <LabSkeleton rows={4} />
       ) : rows.length ? (
+        <>
         <div className="vegas-board">
           <div className="vegas-row vegas-head">
             <span>Matchup</span>
@@ -1424,6 +1530,8 @@ function VegasPanel({ feed, onSelect }) {
           ))}
           <small className="vegas-note">Odds via ESPN · for entertainment only · 21+ · Gambling problem? Call 1-800-GAMBLER.</small>
         </div>
+        <AdSlot placement={AD_PLACEMENTS.vegasBoard} label="Sportsbook offer" />
+        </>
       ) : (
         <p className="detail-empty">No betting lines posted for upcoming {feed.sport.label} games yet.</p>
       )}
@@ -1459,28 +1567,66 @@ function ReferencesPanel({ sport }) {
   );
 }
 
-function StatsLab({ feed, onSelect }) {
-  const sport = feed.sport;
-  const showOdds = sportHasOddsBoard(sport);
-  const showStandings = sportHasStandings(sport);
-  const showLeaders = sportHasLeaders(sport);
+/* ───────────────────────── Tickets (Ticketmaster scaffold) ───────────────────────── */
+
+// Per-sport ticket discovery. UI + ranking only — live pricing needs a
+// serverless proxy to the Ticketmaster Discovery API (see tickets.js). Shows
+// real upcoming games with a disabled CTA; in dev it also renders a sample
+// best->worst seat ranking so the layout is reviewable.
+function TicketsPanel({ feed }) {
+  const upcoming = useMemo(() => getNextMatches(feed.events, new Date(), 5), [feed.events]);
+  const ranked = useMemo(() => rankSeats(SAMPLE_SEATS), []);
+  const showPreview = !TICKETS_ENABLED && Boolean(import.meta.env && import.meta.env.DEV);
 
   return (
-    <section className="stats-lab" aria-label={`${sport.label} deep stats`}>
-      <div className="lab-banner">
-        <span className="lab-banner-icon" aria-hidden="true">
-          <FlaskConical />
-        </span>
-        <div>
-          <strong>Stats Lab · {sport.label}</strong>
-          <small>Vegas lines, standings, leaders & reference links — for the stats nerds</small>
+    <Collapsible title="Tickets" icon={Ticket} badge="Soon" defaultOpen={false}>
+      <p className="tickets-intro">
+        Best-available seats for upcoming {feed.sport.label} games, ranked best to worst by
+        seat tier and price — powered by Ticketmaster.
+      </p>
+
+      {upcoming.length ? (
+        <div className="tickets-games">
+          {upcoming.map((event) => (
+            <div className="tickets-game" key={event.id}>
+              <div className="tg-head">
+                <strong>{event.title}</strong>
+                <small>
+                  {formatKickoff(event.date)}
+                  {event.city ? ` · ${event.city}` : event.venue ? ` · ${event.venue}` : ""}
+                </small>
+              </div>
+              <button className="tickets-cta" type="button" disabled aria-disabled="true">
+                <Ticket aria-hidden="true" /> View tickets (soon)
+              </button>
+            </div>
+          ))}
         </div>
-      </div>
-      {showOdds ? <VegasPanel feed={feed} onSelect={onSelect} /> : null}
-      {showStandings ? <StandingsPanel sport={sport} /> : null}
-      {showLeaders ? <LeadersPanel sport={sport} /> : null}
-      <ReferencesPanel sport={sport} />
-    </section>
+      ) : (
+        <p className="detail-empty">No upcoming {feed.sport.label} games to ticket right now.</p>
+      )}
+
+      {showPreview ? (
+        <div className="tickets-rank">
+          <span className="tickets-rank-head">Sample seat ranking (dev preview)</span>
+          {ranked.map((seat, index) => (
+            <div className="tickets-seat" key={`${seat.tier}-${seat.section}`}>
+              <span className="ts-rank">{index + 1}</span>
+              <span className="ts-tier">
+                {TIER_LABEL[seat.tier] || seat.tier}
+                <em> · {seat.section}</em>
+              </span>
+              <span className="ts-price">${seat.priceUsd}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      <small className="tickets-note">
+        Live pricing &amp; seat ranking require the Ticketmaster Discovery API via a serverless
+        proxy. BRNDN may earn a commission from ticket links.
+      </small>
+    </Collapsible>
   );
 }
 
@@ -1714,6 +1860,7 @@ function GameDetailModal({ event, onClose }) {
               <div className="detail-block">
                 <h3 className="detail-title"><DollarSign aria-hidden="true" /> Key over/unders & lines</h3>
                 <BettingPanel event={event} odds={data.odds} />
+                <AdSlot placement={AD_PLACEMENTS.gameBetting} label="Sportsbook offer" />
               </div>
 
               <div className="detail-block">
@@ -2074,10 +2221,11 @@ function ConsentBanner({ open, onChoose }) {
 
 function App() {
   const { feeds, lastUpdated, nextRefreshAt, refreshing, refresh } = useSportsFeeds();
-  const [entered, setEntered] = useState(false);
+  const initialRoute = parseRoute(typeof window === "undefined" ? "/" : window.location.pathname);
+  const [entered, setEntered] = useState(initialRoute.entered);
   const [ageOk, setAgeOk] = useState(hasAgeAck);
   const [consentOpen, setConsentOpen] = useState(() => !hasConsentDecision());
-  const [activeSportId, setActiveSportId] = useState(DEFAULT_SPORT_ID);
+  const [activeSportId, setActiveSportId] = useState(initialRoute.sportId || DEFAULT_SPORT_ID);
   const [selectedRef, setSelectedRef] = useState(null);
   const [navOpen, setNavOpen] = useState(false);
   // Bracket takes a lot of space — start collapsed on phones, open on desktop.
@@ -2128,11 +2276,53 @@ function App() {
     track("app_open");
   }, []);
 
-  const enterApp = useCallback((sportId) => {
-    if (sportId) setActiveSportId(sportId);
+  // Sync browser back/forward with the active route (/sportId <-> state).
+  useEffect(() => {
+    const onPop = () => {
+      const route = parseRoute(window.location.pathname);
+      setEntered(route.entered);
+      if (route.sportId) setActiveSportId(route.sportId);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  // Normalize an unknown deep link (e.g. /foo) back to the landing URL once.
+  useEffect(() => {
+    if (typeof window !== "undefined" && !initialRoute.entered && window.location.pathname !== "/") {
+      window.history.replaceState({}, "", "/");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Keep document <title> + canonical/social meta in sync with the route.
+  useEffect(() => {
+    updateRouteSeo(entered ? activeSport : null);
+  }, [entered, activeSportId, activeSport]);
+
+  // Switch sports from inside the tracker (tabs/drawer): update state + URL.
+  const selectSport = useCallback((sportId) => {
+    setActiveSportId(sportId);
     setEntered(true);
-    track("enter_tracker", sportId ? { sport: sportId } : undefined);
-    window.scrollTo({ top: 0, behavior: "auto" });
+    pushPath(`/${sportId}`);
+    track("select_sport", { sport: sportId });
+  }, []);
+
+  const enterApp = useCallback(
+    (sportId) => {
+      const target = sportId || activeSportId;
+      setActiveSportId(target);
+      setEntered(true);
+      pushPath(`/${target}`);
+      track("enter_tracker", sportId ? { sport: sportId } : undefined);
+      window.scrollTo({ top: 0, behavior: "auto" });
+    },
+    [activeSportId],
+  );
+
+  const goHome = useCallback(() => {
+    setEntered(false);
+    pushPath("/");
   }, []);
 
   const chooseConsent = useCallback((granted) => {
@@ -2168,7 +2358,7 @@ function App() {
         nextRefreshAt={nextRefreshAt}
         onRefresh={refresh}
         liveCount={totalLive}
-        onHome={() => setEntered(false)}
+        onHome={goHome}
       />
 
       <LiveTicker feeds={feeds} onSelect={selectEvent} />
@@ -2181,7 +2371,7 @@ function App() {
       ) : null}
 
       <main className="dashboard-layout">
-        <SportsTabs activeSportId={activeSportId} feeds={feeds} onSelect={setActiveSportId} />
+        <SportsTabs activeSportId={activeSportId} feeds={feeds} onSelect={selectSport} />
 
         <div className="sport-content" key={activeSportId}>
           <LiveCommandCenter feed={activeFeed} onSelect={selectEvent} />
@@ -2193,6 +2383,17 @@ function App() {
             <StatCard icon={Clock3} label="Upcoming" value={activeFeed.summary.upcoming} tone="blue" />
           </section>
 
+          {/* Promoted team & player stats: surfaced right under the live score
+              (previously buried at the bottom of the collapsed Stats Lab). Each
+              panel is gated so sports without the data don't render an empty
+              tile — e.g. Tennis has neither, Golf has leaders but no standings. */}
+          {sportHasStandings(activeFeed.sport) ? (
+            <StandingsPanel sport={activeFeed.sport} defaultOpen />
+          ) : null}
+          {sportHasLeaders(activeFeed.sport) ? (
+            <LeadersPanel sport={activeFeed.sport} defaultOpen />
+          ) : null}
+
           <div className="main-grid">
             {activeFeed.sport.id === "fifa" ? (
               <BracketBoard rounds={rounds} open={bracketOpen} onToggle={() => setBracketOpen((v) => !v)} onSelect={selectEvent} />
@@ -2202,16 +2403,23 @@ function App() {
             <InfoPanel feed={activeFeed} onSelect={selectEvent} />
           </div>
 
+          {/* Odds, then tickets, then headlines, then external references. */}
+          {sportHasOddsBoard(activeFeed.sport) ? (
+            <VegasPanel feed={activeFeed} onSelect={selectEvent} />
+          ) : null}
+
+          <TicketsPanel feed={activeFeed} />
+
           <NewsSection sport={activeFeed.sport} />
 
-          <StatsLab feed={activeFeed} onSelect={selectEvent} />
+          <ReferencesPanel sport={activeFeed.sport} />
         </div>
       </main>
 
       <SiteFooter />
 
       <BottomNav
-        onHome={() => setEntered(false)}
+        onHome={goHome}
         onTop={scrollToTop}
         onMenu={() => setNavOpen(true)}
         onRefresh={refresh}
@@ -2222,7 +2430,7 @@ function App() {
         open={navOpen}
         activeSportId={activeSportId}
         feeds={feeds}
-        onSelect={setActiveSportId}
+        onSelect={selectSport}
         onClose={() => setNavOpen(false)}
       />
 

@@ -3189,6 +3189,193 @@ body.is-locked .bottom-nav {
   gap: 12px;
 }
 
+/* ===== Ad / affiliate slots (consent-gated, Vault-ready) ================== */
+.ad-slot {
+  margin-top: 12px;
+}
+
+/* Dev-only placeholder so placements are visible while building. */
+.ad-slot-placeholder {
+  display: grid;
+  gap: 2px;
+  padding: 14px 16px;
+  text-align: center;
+  color: var(--muted-2);
+  background:
+    repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.03) 0 10px, transparent 10px 20px),
+    var(--panel);
+  border: 1px dashed var(--stroke-2);
+  border-radius: var(--radius);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.ad-slot-placeholder small {
+  color: var(--muted-2);
+  opacity: 0.8;
+  font-weight: 600;
+}
+
+.ad-slot-live .ad-cta {
+  display: grid;
+  gap: 4px;
+  padding: 14px 16px;
+  color: var(--text);
+  text-decoration: none;
+  background: linear-gradient(150deg, var(--accent-soft), var(--panel));
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--stroke));
+  border-radius: var(--radius);
+}
+
+.ad-book {
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+}
+
+.ad-headline {
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.ad-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 800;
+  color: var(--accent);
+}
+
+.ad-action svg {
+  width: 16px;
+  height: 16px;
+}
+
+.ad-disclosure {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted-2);
+  font-size: 0.72rem;
+}
+
+/* ===== Tickets (Ticketmaster scaffold) =================================== */
+.tickets-intro {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.tickets-games {
+  display: grid;
+  gap: 8px;
+}
+
+.tickets-game {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--panel);
+  border: 1px solid var(--stroke);
+  border-radius: 12px;
+}
+
+.tg-head {
+  display: grid;
+  gap: 2px;
+}
+
+.tg-head strong {
+  font-size: 0.92rem;
+}
+
+.tg-head small {
+  color: var(--muted-2);
+  font-size: 0.76rem;
+}
+
+.tickets-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  padding: 8px 12px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--stroke-2);
+  border-radius: 999px;
+  font-weight: 800;
+  font-size: 0.8rem;
+  cursor: not-allowed;
+}
+
+.tickets-cta svg {
+  width: 15px;
+  height: 15px;
+}
+
+.tickets-rank {
+  margin-top: 12px;
+  display: grid;
+  gap: 4px;
+}
+
+.tickets-rank-head {
+  color: var(--muted-2);
+  font-size: 0.74rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.tickets-seat {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--panel);
+  border: 1px solid var(--stroke);
+  border-radius: 10px;
+}
+
+.ts-rank {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 800;
+  font-size: 0.76rem;
+}
+
+.ts-tier {
+  font-weight: 700;
+  font-size: 0.86rem;
+}
+
+.ts-tier em {
+  color: var(--muted-2);
+  font-style: normal;
+}
+
+.ts-price {
+  font-weight: 850;
+  color: var(--accent);
+}
+
+.tickets-note {
+  display: block;
+  margin-top: 10px;
+  color: var(--muted-2);
+  font-size: 0.74rem;
+}
+
 .lab-banner {
   display: flex;
   align-items: center;
@@ -3619,6 +3806,16 @@ body.is-locked .bottom-nav {
     padding-bottom: calc(86px + env(safe-area-inset-bottom));
   }
 
+  /* Top-align the landing hero from tablet width down. Previously only the
+     ≤620px block adjusted the landing, so phones/small tablets in the
+     621–840px range kept the desktop `justify-content: center` + large
+     clamp() gap — leaving the CTA and sport cards floating in dead space. */
+  .landing-body {
+    justify-content: flex-start;
+    gap: clamp(22px, 4vh, 36px);
+    padding-top: 16px;
+  }
+
   .standings-groups {
     grid-template-columns: 1fr;
   }
@@ -3646,12 +3843,22 @@ body.is-locked .bottom-nav {
   /* Stack from the top so the CTA + sport cards stay reachable on short phones. */
   .landing-body {
     justify-content: flex-start;
-    gap: 24px;
+    gap: 22px;
     padding-top: 12px;
   }
 
   .hero-sports {
     grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+
+  /* Tighter card padding so two columns aren't cramped on ~360px phones. */
+  .hero-sport-card {
+    padding: 14px;
+  }
+
+  .hsc-label {
+    font-size: 1.15rem;
   }
 
   /* Vegas board: drop the spread column on phones; keep matchup / O-U / ML readable. */

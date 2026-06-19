@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://brndn.netlify.app/sitemap.xml
+Sitemap: https://brndn.app/sitemap.xml
