@@ -61,6 +61,7 @@ import {
   requestConsentReopen,
   setConsent,
 } from "./consent.js";
+import { initAnalytics, track } from "./analytics.js";
 import "./styles.css";
 
 const REFRESH_INTERVAL_MS = 60_000;
@@ -2071,7 +2072,10 @@ function App() {
 
   // Keep the open modal in sync with refreshes by re-resolving the event by id each render.
   const selectEvent = useCallback((event) => {
-    if (event) setSelectedRef({ id: event.id, sportId: event.sportId, snapshot: event });
+    if (event) {
+      setSelectedRef({ id: event.id, sportId: event.sportId, snapshot: event });
+      track("game_opened", { sport: event.sportId, status: event.status });
+    }
   }, []);
   const closeEvent = useCallback(() => setSelectedRef(null), []);
   const selectedEvent = useMemo(() => {
@@ -2094,15 +2098,23 @@ function App() {
   // Let the footer "Cookie settings" link re-open the consent banner.
   useEffect(() => onConsentReopen(() => setConsentOpen(true)), []);
 
+  // Start consent-gated analytics once, and record the initial open.
+  useEffect(() => {
+    initAnalytics();
+    track("app_open");
+  }, []);
+
   const enterApp = useCallback((sportId) => {
     if (sportId) setActiveSportId(sportId);
     setEntered(true);
+    track("enter_tracker", sportId ? { sport: sportId } : undefined);
     window.scrollTo({ top: 0, behavior: "auto" });
   }, []);
 
   const chooseConsent = useCallback((granted) => {
     setConsent(granted);
     setConsentOpen(false);
+    track("consent", { granted: granted ? "accept" : "decline" });
   }, []);
 
   const scrollToTop = useCallback(() => {
