@@ -59,8 +59,10 @@ import {
   onConsentReopen,
   requestConsentReopen,
   setConsent,
+  whenConsented,
 } from "./consent.js";
 import { initAnalytics, track } from "./analytics.js";
+import { AD_PLACEMENTS, adsConsented, creativeFor, geoAllows } from "./ads.js";
 import "./styles.css";
 
 const REFRESH_INTERVAL_MS = 60_000;
@@ -1436,6 +1438,61 @@ function LeadersPanel({ sport, defaultOpen = false }) {
   );
 }
 
+// Reusable sportsbook ad / affiliate slot. Inert in production until advertising
+// consent + a configured creative + geo-eligibility all pass (see ads.js). In
+// dev it renders a labeled placeholder so placements are visible while building.
+function AdSlot({ placement, label }) {
+  const [consented, setConsented] = useState(() => adsConsented());
+
+  useEffect(() => {
+    if (consented) return undefined;
+    return whenConsented("advertising", () => setConsented(true));
+  }, [consented]);
+
+  const creative = creativeFor(placement);
+  const showCreative = consented && creative && geoAllows(creative);
+
+  if (showCreative) {
+    return (
+      <aside className="ad-slot ad-slot-live" data-placement={placement} aria-label="Sponsored offer">
+        <a
+          className="ad-cta"
+          href={creative.href}
+          target="_blank"
+          rel="sponsored nofollow noopener noreferrer"
+          onClick={() => track("ad_click", { placement, book: creative.book })}
+        >
+          <span className="ad-book">{creative.book}</span>
+          <span className="ad-headline">{creative.headline}</span>
+          <span className="ad-action">
+            {creative.cta} <ArrowRight aria-hidden="true" />
+          </span>
+        </a>
+        <small className="ad-disclosure">
+          Ad · 21+ · {creative.book} where legal · Gambling problem? Call 1-800-GAMBLER
+        </small>
+      </aside>
+    );
+  }
+
+  // Dev-only placeholder; never shipped to production (import.meta.env.DEV).
+  if (import.meta.env && import.meta.env.DEV) {
+    const reason = !consented
+      ? "awaiting advertising consent"
+      : !creative
+        ? "no creative configured"
+        : "geo-gated (fail-closed)";
+    return (
+      <aside className="ad-slot ad-slot-placeholder" data-placement={placement} aria-hidden="true">
+        <span>Ad slot · {label || placement}</span>
+        <small>{reason}</small>
+      </aside>
+    );
+  }
+
+  return null;
+}
+
 function VegasPanel({ feed, onSelect }) {
   const candidates = useMemo(() => {
     const now = new Date();
@@ -1450,6 +1507,7 @@ function VegasPanel({ feed, onSelect }) {
       {loading ? (
         <LabSkeleton rows={4} />
       ) : rows.length ? (
+        <>
         <div className="vegas-board">
           <div className="vegas-row vegas-head">
             <span>Matchup</span>
@@ -1470,6 +1528,8 @@ function VegasPanel({ feed, onSelect }) {
           ))}
           <small className="vegas-note">Odds via ESPN · for entertainment only · 21+ · Gambling problem? Call 1-800-GAMBLER.</small>
         </div>
+        <AdSlot placement={AD_PLACEMENTS.vegasBoard} label="Sportsbook offer" />
+        </>
       ) : (
         <p className="detail-empty">No betting lines posted for upcoming {feed.sport.label} games yet.</p>
       )}
@@ -1735,6 +1795,7 @@ function GameDetailModal({ event, onClose }) {
               <div className="detail-block">
                 <h3 className="detail-title"><DollarSign aria-hidden="true" /> Key over/unders & lines</h3>
                 <BettingPanel event={event} odds={data.odds} />
+                <AdSlot placement={AD_PLACEMENTS.gameBetting} label="Sportsbook offer" />
               </div>
 
               <div className="detail-block">

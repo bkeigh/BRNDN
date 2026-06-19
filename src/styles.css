@@ -3189,6 +3189,77 @@ body.is-locked .bottom-nav {
   gap: 12px;
 }
 
+/* ===== Ad / affiliate slots (consent-gated, Vault-ready) ================== */
+.ad-slot {
+  margin-top: 12px;
+}
+
+/* Dev-only placeholder so placements are visible while building. */
+.ad-slot-placeholder {
+  display: grid;
+  gap: 2px;
+  padding: 14px 16px;
+  text-align: center;
+  color: var(--muted-2);
+  background:
+    repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.03) 0 10px, transparent 10px 20px),
+    var(--panel);
+  border: 1px dashed var(--stroke-2);
+  border-radius: var(--radius);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.ad-slot-placeholder small {
+  color: var(--muted-2);
+  opacity: 0.8;
+  font-weight: 600;
+}
+
+.ad-slot-live .ad-cta {
+  display: grid;
+  gap: 4px;
+  padding: 14px 16px;
+  color: var(--text);
+  text-decoration: none;
+  background: linear-gradient(150deg, var(--accent-soft), var(--panel));
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--stroke));
+  border-radius: var(--radius);
+}
+
+.ad-book {
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+}
+
+.ad-headline {
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.ad-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 800;
+  color: var(--accent);
+}
+
+.ad-action svg {
+  width: 16px;
+  height: 16px;
+}
+
+.ad-disclosure {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted-2);
+  font-size: 0.72rem;
+}
+
 .lab-banner {
   display: flex;
   align-items: center;
