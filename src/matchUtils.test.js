@@ -7,6 +7,7 @@ import {
   getTodayMatches,
   normalizeEspnScoreboard,
   normalizeFifaMatches,
+  pickWinProbability,
   summarizeEvents,
   summarizeTournament,
 } from "./matchUtils.js";
@@ -372,5 +373,36 @@ describe("summarizeEvents", () => {
       completed: 1,
       nextTitle: "Live Game",
     });
+  });
+});
+
+describe("pickWinProbability", () => {
+  test("normalizes predictor projections that do not sum to 100", () => {
+    const wp = pickWinProbability(
+      { predictor: { homeTeam: { gameProjection: 62 }, awayTeam: { gameProjection: 40 } } },
+      {},
+    );
+    expect(wp.homePct + wp.awayPct).toBe(100);
+    expect(wp.homePct).toBe(61);
+    expect(wp.source).toBe("Matchup Predictor");
+  });
+
+  test("falls back to implied moneyline odds and still sums to 100", () => {
+    const wp = pickWinProbability(
+      { pickcenter: [{ homeTeamOdds: { moneyLine: -150 }, awayTeamOdds: { moneyLine: 130 } }] },
+      {},
+    );
+    expect(wp.homePct + wp.awayPct).toBe(100);
+    expect(wp.homePct).toBeGreaterThan(wp.awayPct);
+    expect(wp.source).toBe("Implied from odds");
+  });
+
+  test("falls back to season record", () => {
+    const wp = pickWinProbability({}, { home: { record: "10-0" }, away: { record: "0-10" } });
+    expect(wp).toEqual({ source: "Based on season record", homePct: 100, awayPct: 0 });
+  });
+
+  test("returns null when no signal is available", () => {
+    expect(pickWinProbability({}, {})).toBeNull();
   });
 });
