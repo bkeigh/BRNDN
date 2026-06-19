@@ -10,7 +10,7 @@ import { consentGranted, whenConsented } from "./consent.js";
 
 const ANALYTICS = {
   provider: "plausible", // "plausible" | "umami" | "none"
-  domain: "", // e.g. "brndn.netlify.app" — leave empty to keep analytics OFF
+  domain: "", // e.g. "brndn.app" — leave empty to keep analytics OFF
   src: "https://plausible.io/js/script.js",
 };
 

@@ -68,7 +68,7 @@ h1, h2, h3, h4,
 .stat-card strong, .stat-card span,
 .detail-nums, .detail-state, .detail-eyeline,
 .score-lockup strong, .round-title h3,
-.lab-title, .lab-banner strong, .bottom-nav button,
+.lab-title, .bottom-nav button,
 .st-rec, .st-extra, .ll-val, .vg-ou, .vg-spread, .vg-ml,
 .betting-cell strong, .bc-label, .winprob-fill, .leader-cat,
 .round-title span,
@@ -3183,12 +3183,6 @@ body.is-locked .bottom-nav {
   height: 24px;
 }
 
-/* ═══════════════════════ Stats Lab ═══════════════════════ */
-.stats-lab {
-  display: grid;
-  gap: 12px;
-}
-
 /* ===== Ad / affiliate slots (consent-gated, Vault-ready) ================== */
 .ad-slot {
   margin-top: 12px;
@@ -3374,46 +3368,6 @@ body.is-locked .bottom-nav {
   margin-top: 10px;
   color: var(--muted-2);
   font-size: 0.74rem;
-}
-
-.lab-banner {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 16px 18px;
-  background:
-    linear-gradient(135deg, var(--accent-soft), rgba(255, 255, 255, 0.02)),
-    var(--panel);
-  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--stroke));
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-sm), inset 0 1px 0 rgba(255, 255, 255, 0.06);
-}
-
-.lab-banner-icon {
-  display: grid;
-  place-items: center;
-  width: 46px;
-  height: 46px;
-  flex: 0 0 auto;
-  color: #06121a;
-  background: linear-gradient(135deg, var(--accent), var(--accent-2));
-  border-radius: 13px;
-}
-
-.lab-banner-icon svg {
-  width: 24px;
-  height: 24px;
-}
-
-.lab-banner strong {
-  display: block;
-  font-size: 1.05rem;
-  font-weight: 850;
-}
-
-.lab-banner small {
-  color: var(--muted);
-  font-size: 0.82rem;
 }
 
 .lab-section {
