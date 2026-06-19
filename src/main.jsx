@@ -62,6 +62,14 @@ import {
   setConsent,
 } from "./consent.js";
 import { initAnalytics, track } from "./analytics.js";
+import {
+  detectState,
+  eligibleOperators,
+  getUserState,
+  onUserStateChange,
+  setUserState,
+  US_STATES,
+} from "./affiliate.js";
 import "./styles.css";
 
 const REFRESH_INTERVAL_MS = 60_000;
@@ -1459,6 +1467,127 @@ function ReferencesPanel({ sport }) {
   );
 }
 
+// Visitor's declared state, kept in sync across all affiliate surfaces.
+function useUserState() {
+  const [state, setStateValue] = useState(getUserState);
+  useEffect(() => onUserStateChange(setStateValue), []);
+  return [state, setUserState];
+}
+
+function StateSelect({ value, onChange, id }) {
+  return (
+    <select
+      className="state-select"
+      id={id}
+      aria-label="Your state"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+    >
+      <option value="">Select your state…</option>
+      {US_STATES.map(([code, name]) => (
+        <option key={code} value={code}>
+          {name}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+// Geo-gated sportsbook offers — only renders books legal in the visitor's state.
+function AffiliateOffers({ placement }) {
+  const [state, choose] = useUserState();
+  const [detecting, setDetecting] = useState(false);
+  const operators = eligibleOperators(state);
+
+  const autoDetect = async () => {
+    setDetecting(true);
+    const code = await detectState();
+    setDetecting(false);
+    if (code) choose(code);
+  };
+
+  return (
+    <div className="aff-offers" aria-label="Sportsbook offers">
+      <div className="aff-head">
+        <span className="aff-tag">Sponsored · 21+</span>
+        <div className="aff-geo">
+          <StateSelect value={state} onChange={choose} id={`aff-state-${placement}`} />
+          <button type="button" className="aff-detect" onClick={autoDetect} disabled={detecting}>
+            {detecting ? "Detecting…" : "Detect"}
+          </button>
+        </div>
+      </div>
+      {!state ? (
+        <p className="aff-note">Select your state to see legal sportsbook offers.</p>
+      ) : operators.length === 0 ? (
+        <p className="aff-note">Online sportsbooks aren’t available in your state yet — odds shown are for entertainment only.</p>
+      ) : (
+        <div className="aff-cards">
+          {operators.map((op) => (
+            <a
+              key={op.id}
+              className="aff-card"
+              href={op.url}
+              target="_blank"
+              rel="noopener noreferrer sponsored"
+              style={{ "--op": op.color }}
+              onClick={() => track("affiliate_click", { operator: op.id, placement, state })}
+            >
+              <span className="aff-op">{op.name}</span>
+              <span className="aff-offer">{op.offer}</span>
+              <span className="aff-cta-text">Claim offer →</span>
+            </a>
+          ))}
+        </div>
+      )}
+      <small className="aff-disclaimer">
+        Must be 21+ and physically located in a state where the operator is licensed. Terms apply.
+        Gambling problem? Call 1-800-GAMBLER.
+      </small>
+    </div>
+  );
+}
+
+// Per-game "bet this line" CTA for the detail modal (highest-intent placement).
+function BetLineCta({ event }) {
+  const [state, choose] = useUserState();
+  const operators = eligibleOperators(state);
+
+  if (!state) {
+    return (
+      <div className="bet-cta">
+        <span className="aff-tag">Sponsored · 21+</span>
+        <div className="bet-cta-geo">
+          <StateSelect value={state} onChange={choose} id="bet-cta-state" />
+          <span className="aff-note-inline">Pick your state for legal betting offers</span>
+        </div>
+      </div>
+    );
+  }
+  if (!operators.length) return null; // not legal in this state → no promo
+
+  return (
+    <div className="bet-cta">
+      <span className="aff-tag">Sponsored · 21+</span>
+      <div className="bet-cta-row">
+        {operators.slice(0, 2).map((op) => (
+          <a
+            key={op.id}
+            className="bet-cta-btn"
+            href={op.url}
+            target="_blank"
+            rel="noopener noreferrer sponsored"
+            style={{ "--op": op.color }}
+            onClick={() => track("affiliate_click", { operator: op.id, placement: "modal", state, sport: event.sportId })}
+          >
+            Bet at {op.name} →
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function StatsLab({ feed, onSelect }) {
   const sport = feed.sport;
   const showOdds = sportHasOddsBoard(sport);
@@ -1477,6 +1606,7 @@ function StatsLab({ feed, onSelect }) {
         </div>
       </div>
       {showOdds ? <VegasPanel feed={feed} onSelect={onSelect} /> : null}
+      {showOdds ? <AffiliateOffers placement="statslab" /> : null}
       {showStandings ? <StandingsPanel sport={sport} /> : null}
       {showLeaders ? <LeadersPanel sport={sport} /> : null}
       <ReferencesPanel sport={sport} />
@@ -1535,6 +1665,7 @@ function BettingPanel({ event, odds }) {
           <strong>{formatMoneyline(odds.awayMoneyLine)}</strong>
         </div>
       </div>
+      <BetLineCta event={event} />
       <small className="betting-source">Lines via {odds.provider} · entertainment only · 21+ · 1-800-GAMBLER.</small>
     </div>
   );
