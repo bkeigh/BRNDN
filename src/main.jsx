@@ -84,6 +84,26 @@ const SPORT_THEME = {
 
 const LANDING_ACCENT = { accent: "#5ad9ff", accent2: "#ffd15f" };
 
+// --- Compliance: 21+ age gate (the app surfaces sports-betting odds) ---------
+const AGE_ACK_KEY = "brndn-age-ack-v1";
+const LEGAL_AGE = 21;
+
+function hasAgeAck() {
+  try {
+    return localStorage.getItem(AGE_ACK_KEY) === "yes";
+  } catch {
+    return false;
+  }
+}
+
+function rememberAgeAck() {
+  try {
+    localStorage.setItem(AGE_ACK_KEY, "yes");
+  } catch {
+    /* private mode / storage blocked — the gate simply re-shows next visit */
+  }
+}
+
 const summaryCache = new Map();
 const newsCache = new Map();
 const standingsCache = new Map();
@@ -1371,7 +1391,7 @@ function VegasPanel({ feed, onSelect }) {
               <span className="vg-ml">{formatMoneyline(odds.homeMoneyLine)} / {formatMoneyline(odds.awayMoneyLine)}</span>
             </button>
           ))}
-          <small className="vegas-note">Lines via ESPN/DraftKings. For entertainment only — tap a game for full odds.</small>
+          <small className="vegas-note">Odds via ESPN · for entertainment only · 21+ · Gambling problem? Call 1-800-GAMBLER.</small>
         </div>
       ) : (
         <p className="detail-empty">No betting lines posted for upcoming {feed.sport.label} games yet.</p>
@@ -1484,7 +1504,7 @@ function BettingPanel({ event, odds }) {
           <strong>{formatMoneyline(odds.awayMoneyLine)}</strong>
         </div>
       </div>
-      <small className="betting-source">Lines via {odds.provider}. For entertainment only.</small>
+      <small className="betting-source">Lines via {odds.provider} · entertainment only · 21+ · 1-800-GAMBLER.</small>
     </div>
   );
 }
@@ -1867,6 +1887,8 @@ function Landing({ feeds, onEnter, totalLive }) {
       <footer className="landing-foot">
         Tap any score above or a sport to jump straight into live tracking.
       </footer>
+
+      <SiteFooter />
     </div>
   );
 }
@@ -1899,9 +1921,99 @@ function SkeletonScreen() {
   );
 }
 
+function AgeGate({ onConfirm }) {
+  const [declined, setDeclined] = useState(false);
+  const accent = accentVarsFrom(LANDING_ACCENT.accent, LANDING_ACCENT.accent2);
+
+  if (declined) {
+    return (
+      <div className="age-gate" style={accent}>
+        <div className="age-gate-card" role="alertdialog" aria-label="Age restriction">
+          <div className="age-gate-mark" aria-hidden="true"><Shield /></div>
+          <h1 className="age-gate-title">You must be {LEGAL_AGE}+</h1>
+          <p className="age-gate-copy">
+            BRNDN displays sports betting odds and is intended for adults of legal age. Please
+            come back when you’re {LEGAL_AGE} or older.
+          </p>
+          <p className="age-gate-help">
+            Gambling problem? Call <a href="tel:18004262537">1-800-GAMBLER</a> or visit{" "}
+            <a href="https://www.ncpgambling.org" target="_blank" rel="noopener noreferrer">
+              ncpgambling.org
+            </a>
+            .
+          </p>
+          <button className="age-gate-secondary" type="button" onClick={() => setDeclined(false)}>
+            Go back
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="age-gate" style={accent}>
+      <div className="age-gate-card" role="dialog" aria-modal="true" aria-label="Age verification">
+        <div className="age-gate-mark" aria-hidden="true"><Trophy /></div>
+        <p className="age-gate-eyeline">BRNDN Sports Tracker</p>
+        <h1 className="age-gate-title">Are you {LEGAL_AGE} or older?</h1>
+        <p className="age-gate-copy">
+          This site shows live sports betting odds — over/unders, spreads and moneylines — for news
+          and entertainment. You must be {LEGAL_AGE}+ to enter.
+        </p>
+        <div className="age-gate-actions">
+          <button
+            className="age-gate-primary"
+            type="button"
+            onClick={() => {
+              rememberAgeAck();
+              onConfirm();
+            }}
+          >
+            Yes, I’m {LEGAL_AGE}+ <ArrowRight aria-hidden="true" />
+          </button>
+          <button className="age-gate-secondary" type="button" onClick={() => setDeclined(true)}>
+            No, I’m under {LEGAL_AGE}
+          </button>
+        </div>
+        <p className="age-gate-help">
+          21+ · Odds are for entertainment only · Gambling problem? Call{" "}
+          <a href="tel:18004262537">1-800-GAMBLER</a>.
+        </p>
+        <p className="age-gate-legal">
+          By entering you agree to our <a href="/terms.html">Terms</a> and{" "}
+          <a href="/privacy.html">Privacy Policy</a>.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function SiteFooter() {
+  return (
+    <footer className="site-footer">
+      <p className="site-footer-rg">
+        <Shield aria-hidden="true" />
+        21+ · Odds shown are for news and entertainment only — BRNDN does not accept wagers.
+        Gambling problem? Call <a href="tel:18004262537">1-800-GAMBLER</a>.
+      </p>
+      <nav className="site-footer-links" aria-label="Legal">
+        <a href="/privacy.html">Privacy Policy</a>
+        <a href="/terms.html">Terms of Use</a>
+        <a href="/responsible-gaming.html">Responsible Gaming</a>
+      </nav>
+      <p className="site-footer-disclosure">
+        BRNDN may earn a commission from links to sportsbooks. Scores and odds are sourced from
+        public data feeds for informational purposes; BRNDN is not affiliated with, endorsed by, or
+        sponsored by any league, team, or sportsbook.
+      </p>
+    </footer>
+  );
+}
+
 function App() {
   const { feeds, lastUpdated, nextRefreshAt, refreshing, refresh } = useSportsFeeds();
   const [entered, setEntered] = useState(false);
+  const [ageOk, setAgeOk] = useState(hasAgeAck);
   const [activeSportId, setActiveSportId] = useState(DEFAULT_SPORT_ID);
   const [selectedRef, setSelectedRef] = useState(null);
   const [navOpen, setNavOpen] = useState(false);
@@ -1950,6 +2062,8 @@ function App() {
   const scrollToTop = useCallback(() => {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, []);
+
+  if (!ageOk) return <AgeGate onConfirm={() => setAgeOk(true)} />;
 
   if (loading) return <SkeletonScreen />;
 
@@ -2006,6 +2120,8 @@ function App() {
           <StatsLab feed={activeFeed} onSelect={selectEvent} />
         </div>
       </main>
+
+      <SiteFooter />
 
       <BottomNav
         onHome={() => setEntered(false)}
