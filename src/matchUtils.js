@@ -591,37 +591,38 @@ function recordWinPct(record) {
   return wins / (wins + losses);
 }
 
-function pickWinProbability(summary, event) {
+// Split two weights into home/away percentages that always sum to exactly 100.
+// Rounding the home side and deriving the away side keeps the win-probability
+// bar from over/underflowing (ESPN's raw projections don't always sum to 100).
+function splitPct(homeWeight, awayWeight) {
+  const total = Number(homeWeight) + Number(awayWeight);
+  if (!Number.isFinite(total) || total <= 0) return null;
+  const homePct = Math.round((Number(homeWeight) / total) * 100);
+  return { homePct, awayPct: 100 - homePct };
+}
+
+export function pickWinProbability(summary, event) {
   const predictor = summary?.predictor;
-  if (predictor?.homeTeam?.gameProjection && predictor?.awayTeam?.gameProjection) {
-    return {
-      source: predictor.header || "Matchup Predictor",
-      homePct: Math.round(Number(predictor.homeTeam.gameProjection)),
-      awayPct: Math.round(Number(predictor.awayTeam.gameProjection)),
-    };
+  const homeProj = Number(predictor?.homeTeam?.gameProjection);
+  const awayProj = Number(predictor?.awayTeam?.gameProjection);
+  if (Number.isFinite(homeProj) && Number.isFinite(awayProj)) {
+    const split = splitPct(homeProj, awayProj);
+    if (split) return { source: predictor.header || "Matchup Predictor", ...split };
   }
 
   const odds = summary?.pickcenter?.[0] || summary?.odds?.[0];
   const homeMl = impliedProbFromMoneyline(odds?.homeTeamOdds?.moneyLine);
   const awayMl = impliedProbFromMoneyline(odds?.awayTeamOdds?.moneyLine);
   if (homeMl !== null && awayMl !== null) {
-    const total = homeMl + awayMl;
-    return {
-      source: "Implied from odds",
-      homePct: Math.round((homeMl / total) * 100),
-      awayPct: Math.round((awayMl / total) * 100),
-    };
+    const split = splitPct(homeMl, awayMl);
+    if (split) return { source: "Implied from odds", ...split };
   }
 
-  const homePct = recordWinPct(event?.home?.record);
-  const awayPct = recordWinPct(event?.away?.record);
-  if (homePct !== null && awayPct !== null) {
-    const total = homePct + awayPct || 1;
-    return {
-      source: "Based on season record",
-      homePct: Math.round((homePct / total) * 100),
-      awayPct: Math.round((awayPct / total) * 100),
-    };
+  const homeRec = recordWinPct(event?.home?.record);
+  const awayRec = recordWinPct(event?.away?.record);
+  if (homeRec !== null && awayRec !== null) {
+    const split = splitPct(homeRec, awayRec);
+    if (split) return { source: "Based on season record", ...split };
   }
 
   return null;

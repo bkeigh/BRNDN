@@ -112,9 +112,26 @@ function rememberAgeAck() {
 }
 
 const summaryCache = new Map();
+const summaryCacheTs = new Map(); // event.id -> last fetch time (live-summary TTL)
 const newsCache = new Map();
 const standingsCache = new Map();
 const leadersCache = new Map();
+
+// A live game's summary (scores/odds/win prob/injuries) goes stale every cycle,
+// while a completed game never changes. Re-fetch live/upcoming summaries past
+// this TTL; keep completed ones cached for the session.
+const SUMMARY_TTL_MS = 45_000;
+
+function summaryFresh(event) {
+  if (!summaryCache.has(event.id)) return false;
+  if (event.status === "completed") return true;
+  return Date.now() - (summaryCacheTs.get(event.id) || 0) < SUMMARY_TTL_MS;
+}
+
+function storeSummary(event, data) {
+  summaryCache.set(event.id, data);
+  summaryCacheTs.set(event.id, Date.now());
+}
 
 function themeFor(sportId) {
   return SPORT_THEME[sportId] || SPORT_THEME.fifa;
@@ -375,21 +392,28 @@ function useGameDetail(event) {
       setState({ loading: false, data: null, error: "unsupported" });
       return undefined;
     }
-    if (summaryCache.has(event.id)) {
+    if (summaryFresh(event)) {
       setState({ loading: false, data: summaryCache.get(event.id), error: null });
       return undefined;
     }
-    setState({ loading: true, data: null, error: null });
+    // Stale (live game) or never fetched: show any prior snapshot while we refresh
+    // in the background so the modal doesn't flash a skeleton every cycle.
+    const cached = summaryCache.get(event.id);
+    setState(cached
+      ? { loading: false, data: cached, error: null }
+      : { loading: true, data: null, error: null });
     fetchJson(url)
       .then((payload) => {
         if (cancelled) return;
         const data = normalizeSummary(payload, event);
-        summaryCache.set(event.id, data);
+        storeSummary(event, data);
         setState({ loading: false, data, error: null });
       })
       .catch((error) => {
         if (cancelled) return;
-        setState({ loading: false, data: null, error: error.message || "Failed to load" });
+        setState(cached
+          ? { loading: false, data: cached, error: null }
+          : { loading: false, data: null, error: error.message || "Failed to load" });
       });
     return () => {
       cancelled = true;
@@ -418,12 +442,12 @@ function useOddsBoard(events) {
         if (!url) return null;
         try {
           let data;
-          if (summaryCache.has(event.id)) {
+          if (summaryFresh(event)) {
             data = summaryCache.get(event.id);
           } else {
             const payload = await fetchJson(url);
             data = normalizeSummary(payload, event);
-            summaryCache.set(event.id, data);
+            storeSummary(event, data);
           }
           return data.odds ? { event, odds: data.odds } : null;
         } catch {
