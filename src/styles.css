@@ -3619,6 +3619,16 @@ body.is-locked .bottom-nav {
     padding-bottom: calc(86px + env(safe-area-inset-bottom));
   }
 
+  /* Top-align the landing hero from tablet width down. Previously only the
+     ≤620px block adjusted the landing, so phones/small tablets in the
+     621–840px range kept the desktop `justify-content: center` + large
+     clamp() gap — leaving the CTA and sport cards floating in dead space. */
+  .landing-body {
+    justify-content: flex-start;
+    gap: clamp(22px, 4vh, 36px);
+    padding-top: 16px;
+  }
+
   .standings-groups {
     grid-template-columns: 1fr;
   }
@@ -3646,12 +3656,22 @@ body.is-locked .bottom-nav {
   /* Stack from the top so the CTA + sport cards stay reachable on short phones. */
   .landing-body {
     justify-content: flex-start;
-    gap: 24px;
+    gap: 22px;
     padding-top: 12px;
   }
 
   .hero-sports {
     grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+
+  /* Tighter card padding so two columns aren't cramped on ~360px phones. */
+  .hero-sport-card {
+    padding: 14px;
+  }
+
+  .hsc-label {
+    font-size: 1.15rem;
   }
 
   /* Vegas board: drop the spread column on phones; keep matchup / O-U / ML readable. */
