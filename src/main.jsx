@@ -55,6 +55,12 @@ import {
   summarizeEvents,
   summaryUrlForEvent,
 } from "./matchUtils.js";
+import {
+  hasConsentDecision,
+  onConsentReopen,
+  requestConsentReopen,
+  setConsent,
+} from "./consent.js";
 import "./styles.css";
 
 const REFRESH_INTERVAL_MS = 60_000;
@@ -2000,6 +2006,9 @@ function SiteFooter() {
         <a href="/privacy.html">Privacy Policy</a>
         <a href="/terms.html">Terms of Use</a>
         <a href="/responsible-gaming.html">Responsible Gaming</a>
+        <button className="footer-link-btn" type="button" onClick={requestConsentReopen}>
+          Cookie settings
+        </button>
       </nav>
       <p className="site-footer-disclosure">
         BRNDN may earn a commission from links to sportsbooks. Scores and odds are sourced from
@@ -2010,10 +2019,39 @@ function SiteFooter() {
   );
 }
 
+function ConsentBanner({ open, onChoose }) {
+  if (!open) return null;
+  return (
+    <div
+      className="consent-banner"
+      role="dialog"
+      aria-label="Cookie consent"
+      style={accentVarsFrom(LANDING_ACCENT.accent, LANDING_ACCENT.accent2)}
+    >
+      <div className="consent-inner">
+        <p className="consent-text">
+          We use essential cookies to run BRNDN. With your permission we’ll also use analytics and
+          advertising cookies to improve and support the site. See our{" "}
+          <a href="/privacy.html">Privacy Policy</a>.
+        </p>
+        <div className="consent-actions">
+          <button className="consent-btn consent-decline" type="button" onClick={() => onChoose(false)}>
+            Decline
+          </button>
+          <button className="consent-btn consent-accept" type="button" onClick={() => onChoose(true)}>
+            Accept all
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function App() {
   const { feeds, lastUpdated, nextRefreshAt, refreshing, refresh } = useSportsFeeds();
   const [entered, setEntered] = useState(false);
   const [ageOk, setAgeOk] = useState(hasAgeAck);
+  const [consentOpen, setConsentOpen] = useState(() => !hasConsentDecision());
   const [activeSportId, setActiveSportId] = useState(DEFAULT_SPORT_ID);
   const [selectedRef, setSelectedRef] = useState(null);
   const [navOpen, setNavOpen] = useState(false);
@@ -2053,10 +2091,18 @@ function App() {
     };
   }, [selectedRef, navOpen]);
 
+  // Let the footer "Cookie settings" link re-open the consent banner.
+  useEffect(() => onConsentReopen(() => setConsentOpen(true)), []);
+
   const enterApp = useCallback((sportId) => {
     if (sportId) setActiveSportId(sportId);
     setEntered(true);
     window.scrollTo({ top: 0, behavior: "auto" });
+  }, []);
+
+  const chooseConsent = useCallback((granted) => {
+    setConsent(granted);
+    setConsentOpen(false);
   }, []);
 
   const scrollToTop = useCallback(() => {
@@ -2068,7 +2114,12 @@ function App() {
   if (loading) return <SkeletonScreen />;
 
   if (!entered) {
-    return <Landing feeds={feeds} onEnter={enterApp} totalLive={totalLive} />;
+    return (
+      <>
+        <Landing feeds={feeds} onEnter={enterApp} totalLive={totalLive} />
+        <ConsentBanner open={consentOpen} onChoose={chooseConsent} />
+      </>
+    );
   }
 
   return (
@@ -2140,6 +2191,8 @@ function App() {
       />
 
       {selectedEvent ? <GameDetailModal event={selectedEvent} onClose={closeEvent} /> : null}
+
+      <ConsentBanner open={consentOpen} onChoose={chooseConsent} />
     </div>
   );
 }
