@@ -168,10 +168,14 @@ function isInsideFallbackLiveWindow(match, now) {
 }
 
 function inferFifaStatus(match, now) {
-  if (match.MatchStatus === 0) return "completed";
+  if (Number(match.MatchStatus) === 0) return "completed";
   if (LIVE_STATUS_CODES.has(Number(match.MatchStatus))) return "live";
   if (matchMinute(match.MatchTime) > 0 && (hasScore(match.HomeTeamScore) || hasScore(match.AwayTeamScore))) return "live";
-  if (Number(match.MatchStatus) === 1 && isInsideFallbackLiveWindow(match, now)) return "live";
+  // Not marked complete and we're inside the post-kickoff window → treat as live.
+  // Covers half-time / stale status codes where FIFA blanks the clock or reports a
+  // status outside the live set, so an in-progress match doesn't flip back to
+  // "upcoming" (and lose its clock) between 60s refreshes.
+  if (isInsideFallbackLiveWindow(match, now)) return "live";
   return "upcoming";
 }
 
@@ -183,7 +187,13 @@ function fifaStatusLabel(match, status) {
 
 function fifaClockLabel(match, status) {
   if (status === "completed") return "Full time";
-  if (status === "live") return matchMinute(match.MatchTime) > 0 ? match.MatchTime : "Kickoff";
+  if (status === "live") {
+    if (matchMinute(match.MatchTime) > 0) return match.MatchTime;
+    // A live match must never show "Kickoff": surface a real state like "HT" when
+    // FIFA gives one, otherwise just "LIVE" (a 0'/blank clock isn't informative).
+    const t = match.MatchTime != null ? String(match.MatchTime).trim() : "";
+    return t && !/^0'?$/.test(t) ? t : "LIVE";
+  }
   return "Kickoff";
 }
 
@@ -290,7 +300,11 @@ function scoreFromLinescores(linescores) {
   const values = linescores
     .map((line) => line?.value ?? line?.displayValue)
     .filter((value) => value !== null && value !== undefined && value !== "");
-  return values.length ? values.join(" ") : null;
+  if (!values.length) return null;
+  // Sum the per-period values into a single total instead of joining them, so a
+  // missing aggregate score never renders as e.g. "1 0 2".
+  const total = values.reduce((sum, value) => sum + (Number(value) || 0), 0);
+  return String(total);
 }
 
 function teamRecord(competitor) {
@@ -423,7 +437,7 @@ export function normalizeEspnScoreboard(response, sport, options = {}) {
 
       return {
         id: eventId(sport, event, competition, index),
-        eventRefId: event?.id || competition?.id || null,
+        eventRefId: competition?.id || event?.id || null,
         sportId: sport.id,
         sportLabel: sport.label,
         source: sport.source,
