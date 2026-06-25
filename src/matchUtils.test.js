@@ -140,7 +140,7 @@ describe("normalizeFifaMatches", () => {
     expect(matches[0]).toMatchObject({
       status: "live",
       statusLabel: "LIVE",
-      clockLabel: "Kickoff",
+      clockLabel: "LIVE",
     });
   });
 
@@ -164,6 +164,25 @@ describe("normalizeFifaMatches", () => {
     );
 
     expect(matches[0].status).toBe("upcoming");
+  });
+
+  test("a live match never shows a 'Kickoff' clock (half-time surfaces 'HT')", () => {
+    const matches = normalizeFifaMatches({
+      Results: [
+        {
+          IdMatch: "halftime",
+          MatchNumber: 30,
+          Date: "2026-06-17T20:00:00Z",
+          MatchStatus: 5,
+          MatchTime: "HT",
+          StageName: [{ Locale: "en-GB", Description: "First Stage" }],
+          Home: { IdTeam: "ENG", ShortClubName: "England", Abbreviation: "ENG" },
+          Away: { IdTeam: "CRO", ShortClubName: "Croatia", Abbreviation: "CRO" },
+        },
+      ],
+    });
+
+    expect(matches[0]).toMatchObject({ status: "live", clockLabel: "HT" });
   });
 });
 
