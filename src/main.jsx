@@ -665,10 +665,53 @@ function SportsTabs({ activeSportId, feeds, onSelect }) {
 }
 
 function SportsSheet({ open, activeSportId, feeds, onSelect, onClose }) {
+  const drawerRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const previouslyFocused = document.activeElement;
+    drawerRef.current?.focus();
+
+    const handler = (e) => {
+      if (e.key === "Escape") {
+        onClose();
+        return;
+      }
+      if (e.key !== "Tab" || !drawerRef.current) return;
+      const focusable = Array.from(
+        drawerRef.current.querySelectorAll('button, a[href], [tabindex]:not([tabindex="-1"])'),
+      ).filter((el) => !el.disabled && el.offsetParent !== null);
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => {
+      window.removeEventListener("keydown", handler);
+      if (previouslyFocused && typeof previouslyFocused.focus === "function") {
+        previouslyFocused.focus();
+      }
+    };
+  }, [open, onClose]);
+
   return (
     <div className={`nav-drawer-root ${open ? "open" : ""}`} aria-hidden={!open}>
       <div className="nav-scrim" onClick={onClose} />
-      <aside className="nav-drawer" aria-label="Sports menu">
+      <aside
+        className="nav-drawer"
+        aria-label="Sports menu"
+        role="dialog"
+        aria-modal="true"
+        ref={drawerRef}
+        tabIndex={-1}
+      >
         <div className="nav-grip" aria-hidden="true" />
         <div className="nav-drawer-head">
           <strong>Choose a sport</strong>
@@ -712,14 +755,14 @@ function SportsSheet({ open, activeSportId, feeds, onSelect, onClose }) {
   );
 }
 
-function BottomNav({ onHome, onTop, onMenu, onRefresh, refreshing }) {
+function BottomNav({ onHome, onLive, onMenu, onRefresh, refreshing }) {
   return (
     <nav className="bottom-nav" aria-label="Primary navigation">
       <button type="button" onClick={onHome}>
         <Home aria-hidden="true" />
         <span>Home</span>
       </button>
-      <button type="button" onClick={onTop}>
+      <button type="button" onClick={onLive}>
         <Radio aria-hidden="true" />
         <span>Live</span>
       </button>
@@ -764,7 +807,7 @@ function LiveCommandCenter({ feed, onSelect }) {
   const queueHasLive = queue.some((event) => event.status === "live");
 
   return (
-    <section className={`live-command ${isLive ? "is-live" : ""}`} aria-label="Live sports command center">
+    <section id="live-now" className={`live-command ${isLive ? "is-live" : ""}`} aria-label="Live sports command center">
       <div className="live-copy">
         <span className="live-eyeline">
           {isLive ? <Radio aria-hidden="true" /> : <Clock3 aria-hidden="true" />}
@@ -2353,8 +2396,10 @@ function App() {
     track("consent", { granted: granted ? "accept" : "decline" });
   }, []);
 
-  const scrollToTop = useCallback(() => {
-    window.scrollTo({ top: 0, behavior: "smooth" });
+  const goLive = useCallback(() => {
+    const el = document.getElementById("live-now");
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    else window.scrollTo({ top: 0, behavior: "smooth" });
   }, []);
 
   if (!ageOk) return <AgeGate onConfirm={() => setAgeOk(true)} />;
@@ -2395,7 +2440,7 @@ function App() {
       <main className="dashboard-layout">
         <SportsTabs activeSportId={activeSportId} feeds={feeds} onSelect={selectSport} />
 
-        <div className="sport-content" key={activeSportId}>
+        <div className="sport-content">
           <LiveCommandCenter feed={activeFeed} onSelect={selectEvent} />
 
           <section className="scoreboard-strip" aria-label={`${activeFeed.sport.label} summary`}>
@@ -2442,7 +2487,7 @@ function App() {
 
       <BottomNav
         onHome={goHome}
-        onTop={scrollToTop}
+        onLive={goLive}
         onMenu={() => setNavOpen(true)}
         onRefresh={refresh}
         refreshing={refreshing}
