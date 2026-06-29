@@ -936,36 +936,70 @@ function buildPyramidGeometry(rounds) {
     };
   });
 
-  const connectorPaths = lanes.slice(0, -1).flatMap((lane, roundIndex) => {
-    const nextLane = lanes[roundIndex + 1];
-    return lane.cards.map((card, matchIndex) => {
-      const target = nextLane.cards[Math.floor(matchIndex / 2)];
-      if (!target) return null;
+  // Clean orthogonal elbow with rounded corners (classic bracket routing).
+  const elbow = (startX, startY, endX, endY) => {
+    const midX = startX + (endX - startX) / 2;
+    const dirY = endY >= startY ? 1 : -1;
+    const r = Math.max(0, Math.min(14, Math.abs(endY - startY) / 2, Math.abs(midX - startX)));
+    return r < 1
+      ? `M ${startX} ${startY} H ${endX}`
+      : `M ${startX} ${startY} H ${midX - r} ` +
+          `Q ${midX} ${startY} ${midX} ${startY + dirY * r} ` +
+          `V ${endY - dirY * r} ` +
+          `Q ${midX} ${endY} ${midX + r} ${endY} ` +
+          `H ${endX}`;
+  };
 
-      const startX = card.x + CARD_WIDTH;
-      const startY = card.y + CARD_HEIGHT / 2;
-      const endX = target.x;
-      const endY = target.y + CARD_HEIGHT / 2;
-      const midX = startX + (endX - startX) / 2;
-      const dirY = endY >= startY ? 1 : -1;
-      const r = Math.max(0, Math.min(14, Math.abs(endY - startY) / 2, Math.abs(midX - startX)));
+  // Index every card by match number so connectors can follow the REAL feeder
+  // refs (FIFA "W##" placeholders, preserved even after a slot resolves) instead
+  // of assuming a sequential bracket. The 2026 bracket is non-sequential — e.g.
+  // R32 #73 feeds R16 #90 (not #89) — so positional routing drew false lines.
+  const cardByNumber = new Map();
+  for (const lane of lanes) {
+    for (const card of lane.cards) {
+      if (Number.isFinite(card.match.matchNumber)) cardByNumber.set(card.match.matchNumber, card);
+    }
+  }
+  const feederNumber = (ref) => {
+    const m = typeof ref === "string" && ref.match(/^W(\d+)$/i);
+    return m ? Number(m[1]) : null;
+  };
 
-      // Clean orthogonal elbow with rounded corners (classic bracket routing).
-      const d =
-        r < 1
-          ? `M ${startX} ${startY} H ${endX}`
-          : `M ${startX} ${startY} H ${midX - r} ` +
-            `Q ${midX} ${startY} ${midX} ${startY + dirY * r} ` +
-            `V ${endY - dirY * r} ` +
-            `Q ${midX} ${endY} ${midX + r} ${endY} ` +
-            `H ${endX}`;
-
-      return {
-        key: `${lane.label}-${card.match.id}`,
-        d,
-      };
-    }).filter(Boolean);
-  });
+  // Draw from each feeder match's card into the slot it feeds (slot A = upper team
+  // row, slot B = lower). Falls back to positional routing only if no card in the
+  // bracket carries a parseable feeder ref (non-FIFA / legacy data).
+  const slotY = [CARD_HEIGHT * 0.46, CARD_HEIGHT * 0.72];
+  const connectorPaths = [];
+  let usedFeeders = false;
+  for (let li = 1; li < lanes.length; li++) {
+    for (const target of lanes[li].cards) {
+      (target.match.slotRefs || []).forEach((ref, slot) => {
+        const n = feederNumber(ref);
+        if (n == null) return;
+        const source = cardByNumber.get(n);
+        if (!source) return;
+        usedFeeders = true;
+        const ty = target.y + (slotY[slot] ?? CARD_HEIGHT / 2);
+        connectorPaths.push({
+          key: `feed-${n}-to-${target.match.id}-${slot}`,
+          d: elbow(source.x + CARD_WIDTH, source.y + CARD_HEIGHT / 2, target.x, ty),
+        });
+      });
+    }
+  }
+  if (!usedFeeders) {
+    for (let roundIndex = 0; roundIndex < lanes.length - 1; roundIndex++) {
+      const nextLane = lanes[roundIndex + 1];
+      lanes[roundIndex].cards.forEach((card, matchIndex) => {
+        const target = nextLane.cards[Math.floor(matchIndex / 2)];
+        if (!target) return;
+        connectorPaths.push({
+          key: `${lanes[roundIndex].label}-${card.match.id}`,
+          d: elbow(card.x + CARD_WIDTH, card.y + CARD_HEIGHT / 2, target.x, target.y + CARD_HEIGHT / 2),
+        });
+      });
+    }
+  }
 
   const finalLane = lanes[lanes.length - 1];
   const finalCard = finalLane?.cards?.[0];

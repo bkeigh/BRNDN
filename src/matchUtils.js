@@ -253,6 +253,9 @@ export function normalizeFifaMatches(response, options = {}) {
         city: localizedText(match.Stadium?.CityName, ""),
         resultType: match.ResultType,
         rawStatus: match.MatchStatus,
+        // Bracket feeder refs (e.g. "W73"/"W74"). FIFA keeps these even after the
+        // slot resolves to a team, so they drive correct knockout connectors.
+        slotRefs: [match.PlaceHolderA ?? null, match.PlaceHolderB ?? null],
       };
     })
     .filter((match) => Number.isFinite(match.matchNumber) && match.date)

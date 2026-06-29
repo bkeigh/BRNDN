@@ -106,6 +106,10 @@ describe("normalizeFifaMatches", () => {
     expect(r32.status).toBe("upcoming");
     expect(r32.home).toMatchObject({ name: "2A", abbreviation: "2A", placeholder: true });
     expect(r32.away).toMatchObject({ name: "2B", abbreviation: "2B", placeholder: true });
+    // Feeder refs are captured for bracket connectors (here group slots, not W##).
+    expect(r32.slotRefs).toEqual(["2A", "2B"]);
+    const final = matches.find((match) => match.matchNumber === 104);
+    expect(final.slotRefs).toEqual(["W101", "W102"]);
   });
 
   test("infers a live match when kickoff has passed but FIFA still reports scheduled", () => {
