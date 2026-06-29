@@ -534,7 +534,7 @@ export function summarizeEvents(matches, now = new Date()) {
   const live = matches.filter((match) => match.status === "live").length;
   const upcoming = matches.filter((match) => match.status === "upcoming").length;
   const next = matches
-    .filter((match) => match.status !== "completed" && new Date(match.date) >= now)
+    .filter((match) => match.status === "upcoming" && new Date(match.date) >= now)
     .sort((a, b) => new Date(a.date) - new Date(b.date))[0];
 
   return {

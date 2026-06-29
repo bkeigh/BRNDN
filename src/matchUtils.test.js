@@ -394,7 +394,7 @@ describe("summarizeEvents", () => {
       live: 1,
       upcoming: 1,
       completed: 1,
-      nextTitle: "Live Game",
+      nextTitle: "Next Game",
     });
   });
 });
