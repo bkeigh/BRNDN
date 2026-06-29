@@ -140,7 +140,7 @@ const SPORT_THEME = {
   mlb: { icon: "⚾", accent: "#5a8dff", accent2: "#8fb6ff" }, // royal blue
 };
 
-const LANDING_ACCENT = { accent: "#5ad9ff", accent2: "#ffd15f" };
+const LANDING_ACCENT = { accent: "#5b8fc7", accent2: "#84acd6" };
 
 // --- Compliance: 21+ age gate (the app surfaces sports-betting odds) ---------
 const AGE_ACK_KEY = "brndn-age-ack-v1";
@@ -209,9 +209,9 @@ function accentVarsFrom(accent, accent2) {
   };
 }
 
-function accentVars(sportId) {
-  const theme = themeFor(sportId);
-  return accentVarsFrom(theme.accent, theme.accent2);
+function accentVars() {
+  // Fixed athletic-blue scheme app-wide — no per-sport accent override.
+  return accentVarsFrom("#5b8fc7", "#84acd6");
 }
 
 function emptyFeed(sport) {
@@ -735,9 +735,9 @@ function BottomNav({ onHome, onTop, onMenu, onRefresh, refreshing }) {
   );
 }
 
-function CommandTeam({ team, score, side, winner }) {
+function CommandTeam({ team, score, side, winner, loser }) {
   return (
-    <div className={`command-team ${side} ${winner ? "winner" : ""} ${team.placeholder ? "placeholder" : ""}`}>
+    <div className={`command-team ${side} ${winner ? "winner" : ""} ${loser ? "loser" : ""} ${team.placeholder ? "placeholder" : ""}`}>
       {team.flagUrl ? (
         <img src={team.flagUrl} alt={flagAlt(team)} loading="lazy" />
       ) : (
@@ -786,7 +786,7 @@ function LiveCommandCenter({ feed, onSelect }) {
 
       {featured ? (
         <button className="live-scoreboard" type="button" onClick={() => onSelect(featured)} aria-label={`Open ${featured.title} details`}>
-          <CommandTeam team={featured.home} score={featured.homeScore} side="home" winner={featured.winnerSide === "home"} />
+          <CommandTeam team={featured.home} score={featured.homeScore} side="home" winner={featured.winnerSide === "home"} loser={featured.winnerSide === "away"} />
           <div className="command-clock">
             {isLive ? (
               <>
@@ -802,7 +802,7 @@ function LiveCommandCenter({ feed, onSelect }) {
               </>
             )}
           </div>
-          <CommandTeam team={featured.away} score={featured.awayScore} side="away" winner={featured.winnerSide === "away"} />
+          <CommandTeam team={featured.away} score={featured.awayScore} side="away" winner={featured.winnerSide === "away"} loser={featured.winnerSide === "home"} />
         </button>
       ) : null}
 
@@ -827,9 +827,9 @@ function LiveCommandCenter({ feed, onSelect }) {
   );
 }
 
-function TeamRow({ team, score, penaltyScore, winner }) {
+function TeamRow({ team, score, penaltyScore, winner, loser }) {
   return (
-    <div className={`team-row ${winner ? "winner" : ""} ${team.placeholder ? "placeholder" : ""}`}>
+    <div className={`team-row ${winner ? "winner" : ""} ${loser ? "loser" : ""} ${team.placeholder ? "placeholder" : ""}`}>
       <div className="team-identity">
         {team.flagUrl ? (
           <img src={team.flagUrl} alt={flagAlt(team)} loading="lazy" />
@@ -887,12 +887,14 @@ function MatchCard({ match, roundIndex = 0, isLastRound = false, variant = "", o
         score={match.homeScore}
         penaltyScore={match.homePenaltyScore}
         winner={match.winnerSide === "home"}
+        loser={match.winnerSide === "away"}
       />
       <TeamRow
         team={match.away}
         score={match.awayScore}
         penaltyScore={match.awayPenaltyScore}
         winner={match.winnerSide === "away"}
+        loser={match.winnerSide === "home"}
       />
 
       <div className="match-footer">

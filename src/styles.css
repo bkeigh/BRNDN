@@ -26,11 +26,14 @@
   --cyan: #5ad9ff;
   --blue: #6aa6ff;
 
-  /* Per-sport accent — overridden inline on .app */
-  --accent: #5ad9ff;
-  --accent-2: #6aa6ff;
-  --accent-soft: rgba(90, 217, 255, 0.16);
-  --accent-glow: rgba(90, 217, 255, 0.4);
+  /* Fixed athletic-blue accent — applied app-wide, no per-sport override */
+  --accent: #5b8fc7;
+  --accent-2: #84acd6;
+  --accent-soft: rgba(91, 143, 199, 0.16);
+  --accent-glow: rgba(91, 143, 199, 0.4);
+
+  /* Dimmed losing score (Apple-style: winner stays white, loser fades) */
+  --ink-dim: rgba(255, 255, 255, 0.34);
 
   --radius: 16px;
   --radius-sm: 11px;
@@ -50,8 +53,8 @@ body {
   min-height: 100vh;
   overflow-x: hidden;
   background:
-    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(40, 60, 100, 0.5), transparent 60%),
-    linear-gradient(180deg, #0a1020 0%, var(--bg) 55%);
+    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(91, 143, 199, 0.2), transparent 60%),
+    linear-gradient(180deg, #141d2c 0%, var(--bg) 58%);
 }
 
 button {
@@ -703,7 +706,11 @@ h1, h2, h3, h4,
 }
 
 .command-team.winner .cmd-score {
-  color: var(--gold);
+  color: var(--text);
+}
+
+.command-team.loser .cmd-score {
+  color: var(--ink-dim);
 }
 
 .command-clock {
@@ -1179,8 +1186,8 @@ h1, h2, h3, h4,
 }
 
 .team-row.winner {
-  background: rgba(47, 226, 139, 0.13);
-  border-color: rgba(47, 226, 139, 0.3);
+  background: transparent;
+  border-color: transparent;
 }
 
 .team-row.placeholder {
@@ -1252,7 +1259,11 @@ h1, h2, h3, h4,
 }
 
 .team-row.winner .score-lockup strong {
-  color: var(--gold);
+  color: var(--text);
+}
+
+.team-row.loser .score-lockup strong {
+  color: var(--ink-dim);
 }
 
 .score-lockup span {
