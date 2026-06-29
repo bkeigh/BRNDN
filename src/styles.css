@@ -4165,3 +4165,266 @@ body.is-locked .bottom-nav {
     flex: 1 1 auto;
   }
 }
+
+/* ===== Login + favorites UI ============================================= */
+.follow-star {
+  flex: 0 0 auto;
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color 160ms var(--ease), transform 160ms var(--ease);
+}
+
+.follow-star svg {
+  width: 19px;
+  height: 19px;
+}
+
+.follow-star:hover {
+  color: var(--text);
+}
+
+.follow-star.following {
+  color: var(--gold);
+}
+
+.follow-star:active {
+  transform: scale(0.88);
+}
+
+.follow-star:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.detail-team .follow-star {
+  margin-top: 2px;
+}
+
+/* Account header in the sports drawer */
+.nav-account {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 4px 14px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid var(--stroke);
+}
+
+.nav-avatar {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  color: var(--accent);
+}
+
+.nav-avatar svg {
+  width: 38px;
+  height: 38px;
+}
+
+.nav-account-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.nav-account-info strong {
+  display: block;
+  font-size: 0.95rem;
+  color: var(--text);
+}
+
+.nav-account-info small {
+  display: block;
+  color: var(--muted-2);
+  font-size: 0.76rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nav-account-action {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--stroke-2);
+  border-radius: 999px;
+  padding: 7px 13px;
+  cursor: pointer;
+}
+
+.nav-account-action svg {
+  width: 15px;
+  height: 15px;
+}
+
+.nav-account-action.signin {
+  color: #06121f;
+  background: var(--accent);
+  border-color: transparent;
+}
+
+.nav-account-action:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Auth sheet (login / signup) */
+.auth-sheet {
+  width: min(420px, 100%);
+  padding: 26px 22px 20px;
+}
+
+.auth-head {
+  text-align: center;
+  margin-bottom: 16px;
+}
+
+.auth-head h2 {
+  margin: 0 0 4px;
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+}
+
+.auth-head p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.auth-tabs {
+  display: flex;
+  gap: 24px;
+  justify-content: center;
+  border-bottom: 1px solid var(--stroke);
+  padding-bottom: 10px;
+  margin-bottom: 16px;
+}
+
+.auth-tabs button {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.auth-tabs button.active {
+  color: var(--text);
+}
+
+.auth-tabs button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.auth-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 0.78rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.auth-form input {
+  font: inherit;
+  font-size: 0.95rem;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--stroke-2);
+  border-radius: var(--radius-sm);
+  padding: 11px 13px;
+}
+
+.auth-form input::placeholder {
+  color: var(--muted-2);
+}
+
+.auth-form input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-color: var(--accent);
+}
+
+.auth-error {
+  margin: 2px 0 0;
+  color: var(--red);
+  font-size: 0.82rem;
+}
+
+.auth-primary {
+  margin-top: 6px;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 1rem;
+  color: #06121f;
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 13px;
+  cursor: pointer;
+  transition: filter 160ms var(--ease);
+}
+
+.auth-primary:hover:not(:disabled) {
+  filter: brightness(1.07);
+}
+
+.auth-primary:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
+.auth-ghost {
+  width: 100%;
+  margin-top: 12px;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 0.92rem;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--stroke-2);
+  border-radius: var(--radius-sm);
+  padding: 11px;
+  cursor: pointer;
+}
+
+.auth-ghost:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.auth-fineprint {
+  margin: 12px 0 0;
+  text-align: center;
+  color: var(--muted-2);
+  font-size: 0.72rem;
+}
+
+.auth-primary:focus-visible,
+.auth-ghost:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

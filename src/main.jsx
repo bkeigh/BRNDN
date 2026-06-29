@@ -27,6 +27,10 @@ import {
   Ticket,
   Trophy,
   Users,
+  LogIn,
+  LogOut,
+  Star,
+  UserCircle2,
   X,
   Zap,
 } from "lucide-react";
@@ -65,6 +69,8 @@ import {
 import { initAnalytics, track } from "./analytics.js";
 import { AD_PLACEMENTS, adsConsented, creativeFor, geoAllows } from "./ads.js";
 import { SAMPLE_SEATS, TICKETS_ENABLED, TIER_LABEL, rankSeats } from "./tickets.js";
+import { useAuth } from "./useAuth.js";
+import { useFavorites } from "./favorites.js";
 import "./styles.css";
 
 const REFRESH_INTERVAL_MS = 60_000;
@@ -664,8 +670,95 @@ function SportsTabs({ activeSportId, feeds, onSelect }) {
   );
 }
 
-function SportsSheet({ open, activeSportId, feeds, onSelect, onClose }) {
+// A star toggle for following a team/league. Stops propagation so it never
+// triggers the row/card it sits inside.
+function FollowStar({ active, onToggle, label }) {
+  return (
+    <button
+      type="button"
+      className={`follow-star ${active ? "following" : ""}`}
+      aria-pressed={active}
+      aria-label={label}
+      onClick={(e) => {
+        e.stopPropagation();
+        onToggle();
+      }}
+    >
+      <Star aria-hidden="true" fill={active ? "currentColor" : "none"} />
+    </button>
+  );
+}
+
+// Dummy login / signup bottom sheet (auth.js is local now, Supabase later).
+function AuthSheet({ onClose }) {
+  const { signIn, signUp } = useAuth();
+  const [mode, setMode] = useState("login");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [name, setName] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const sheetRef = useRef(null);
+
+  useEffect(() => {
+    sheetRef.current?.focus();
+    const onKey = (e) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    const res =
+      mode === "login"
+        ? await signIn({ email, password })
+        : await signUp({ email, password, displayName: name });
+    setBusy(false);
+    if (res.error) {
+      setError(res.error);
+    } else {
+      track(mode === "login" ? "auth_login" : "auth_signup");
+      onClose();
+    }
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-sheet auth-sheet" role="dialog" aria-modal="true" aria-label="Sign in" ref={sheetRef} tabIndex={-1} onClick={(e) => e.stopPropagation()}>
+        <button className="modal-close" type="button" onClick={onClose} aria-label="Close">
+          <X aria-hidden="true" />
+        </button>
+        <div className="auth-head">
+          <h2>{mode === "login" ? "Welcome back" : "Create your account"}</h2>
+          <p>Save your favorite teams across this device.</p>
+        </div>
+        <div className="auth-tabs" role="tablist" aria-label="Sign in or sign up">
+          <button role="tab" type="button" aria-selected={mode === "login"} className={mode === "login" ? "active" : ""} onClick={() => { setMode("login"); setError(""); }}>Log in</button>
+          <button role="tab" type="button" aria-selected={mode === "signup"} className={mode === "signup" ? "active" : ""} onClick={() => { setMode("signup"); setError(""); }}>Sign up</button>
+        </div>
+        <form className="auth-form" onSubmit={submit}>
+          {mode === "signup" ? (
+            <label>Display name<input type="text" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" placeholder="Your name" /></label>
+          ) : null}
+          <label>Email<input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" placeholder="you@example.com" /></label>
+          <label>Password<input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} autoComplete={mode === "login" ? "current-password" : "new-password"} placeholder="••••••••" /></label>
+          {error ? <p className="auth-error" role="alert">{error}</p> : null}
+          <button className="auth-primary" type="submit" disabled={busy}>{busy ? "…" : mode === "login" ? "Log in" : "Create account"}</button>
+        </form>
+        <button className="auth-ghost" type="button" onClick={onClose}>Continue as guest</button>
+        <p className="auth-fineprint">Demo login — stored on this device only. Real accounts coming soon.</p>
+      </div>
+    </div>
+  );
+}
+
+function SportsSheet({ open, activeSportId, feeds, onSelect, onClose, onOpenAuth }) {
   const drawerRef = useRef(null);
+  const { user, signOut } = useAuth();
 
   useEffect(() => {
     if (!open) return undefined;
@@ -713,6 +806,37 @@ function SportsSheet({ open, activeSportId, feeds, onSelect, onClose }) {
         tabIndex={-1}
       >
         <div className="nav-grip" aria-hidden="true" />
+        <div className="nav-account">
+          <span className="nav-avatar" aria-hidden="true"><UserCircle2 /></span>
+          {user ? (
+            <>
+              <div className="nav-account-info">
+                <strong>{user.displayName}</strong>
+                <small>{user.email}</small>
+              </div>
+              <button className="nav-account-action" type="button" onClick={() => signOut()}>
+                <LogOut aria-hidden="true" /> Log out
+              </button>
+            </>
+          ) : (
+            <>
+              <div className="nav-account-info">
+                <strong>Guest</strong>
+                <small>Sign in to save your teams</small>
+              </div>
+              <button
+                className="nav-account-action signin"
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onOpenAuth();
+                }}
+              >
+                <LogIn aria-hidden="true" /> Sign in
+              </button>
+            </>
+          )}
+        </div>
         <div className="nav-drawer-head">
           <strong>Choose a sport</strong>
           <button className="icon-button" type="button" onClick={onClose} aria-label="Close menu">
@@ -1839,6 +1963,7 @@ function InjuriesPanel({ groups }) {
 
 function GameDetailModal({ event, onClose }) {
   const { loading, data, error } = useGameDetail(event);
+  const { isFavoriteTeam, toggleFavoriteTeam } = useFavorites();
   const sheetRef = useRef(null);
 
   useEffect(() => {
@@ -1899,6 +2024,13 @@ function GameDetailModal({ event, onClose }) {
                 <strong>{event.home.shortName}</strong>
                 {event.home.record ? <small>{event.home.record}</small> : null}
               </div>
+              {event.home.placeholder ? null : (
+                <FollowStar
+                  active={isFavoriteTeam(event.home.id)}
+                  onToggle={() => toggleFavoriteTeam({ id: event.home.id, sportId: event.sportId, name: event.home.shortName, abbreviation: event.home.abbreviation, flagUrl: event.home.flagUrl })}
+                  label={`Follow ${event.home.shortName}`}
+                />
+              )}
             </div>
             <div className="detail-center">
               <span className="detail-nums">
@@ -1914,6 +2046,13 @@ function GameDetailModal({ event, onClose }) {
                 <strong>{event.away.shortName}</strong>
                 {event.away.record ? <small>{event.away.record}</small> : null}
               </div>
+              {event.away.placeholder ? null : (
+                <FollowStar
+                  active={isFavoriteTeam(event.away.id)}
+                  onToggle={() => toggleFavoriteTeam({ id: event.away.id, sportId: event.sportId, name: event.away.shortName, abbreviation: event.away.abbreviation, flagUrl: event.away.flagUrl })}
+                  label={`Follow ${event.away.shortName}`}
+                />
+              )}
             </div>
           </div>
           <p className="detail-sub">{formatKickoff(event.date)}{event.city ? ` · ${event.city}` : event.venue ? ` · ${event.venue}` : ""}</p>
@@ -2314,6 +2453,7 @@ function App() {
   const [activeSportId, setActiveSportId] = useState(initialRoute.sportId || DEFAULT_SPORT_ID);
   const [selectedRef, setSelectedRef] = useState(null);
   const [navOpen, setNavOpen] = useState(false);
+  const [authOpen, setAuthOpen] = useState(false);
   // Bracket takes a lot of space — start collapsed on phones, open on desktop.
   const [bracketOpen, setBracketOpen] = useState(() =>
     typeof window === "undefined" ? true : window.innerWidth > 840,
@@ -2535,9 +2675,12 @@ function App() {
         feeds={feeds}
         onSelect={selectSport}
         onClose={() => setNavOpen(false)}
+        onOpenAuth={() => setAuthOpen(true)}
       />
 
       {selectedEvent ? <GameDetailModal event={selectedEvent} onClose={closeEvent} /> : null}
+
+      {authOpen ? <AuthSheet onClose={() => setAuthOpen(false)} /> : null}
 
       <ConsentBanner open={consentOpen} onChoose={chooseConsent} />
     </div>

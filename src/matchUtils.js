@@ -736,11 +736,6 @@ export function normalizeSummary(payload, event) {
   };
 }
 
-// Just the odds slice — used by the cross-game Vegas board.
-export function extractOdds(payload, event) {
-  return buildOdds(payload);
-}
-
 /* ─────────────────────────── Standings + leaders (Stats Lab) ─────────────────────────── */
 
 const STANDINGS_SPORTS = new Set(["nfl", "mlb", "nhl", "nba", "mls", "fifa"]);
