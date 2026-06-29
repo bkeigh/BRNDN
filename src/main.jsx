@@ -68,7 +68,15 @@ import {
 } from "./consent.js";
 import { initAnalytics, track } from "./analytics.js";
 import { AD_PLACEMENTS, adsConsented, creativeFor, geoAllows } from "./ads.js";
-import { SAMPLE_SEATS, TICKETS_ENABLED, TIER_LABEL, rankSeats } from "./tickets.js";
+import {
+  PROVIDERS,
+  SAMPLE_SEATS,
+  TICKETS_AFFILIATE_DISCLOSURE,
+  TICKETS_ENABLED,
+  TIER_LABEL,
+  buildAffiliateLink,
+  rankSeats,
+} from "./tickets.js";
 import { useAuth } from "./useAuth.js";
 import { useFavorites } from "./favorites.js";
 import "./styles.css";
@@ -1777,6 +1785,31 @@ function ReferencesPanel({ sport }) {
 // serverless proxy to the Ticketmaster Discovery API (see tickets.js). Shows
 // real upcoming games with a disabled CTA; in dev it also renders a sample
 // best->worst seat ranking so the layout is reviewable.
+// Affiliate ticket links for an event (deep-links out to partners). Hidden for
+// finished games. `compact` drops the heading/disclosure for inline rows.
+function TicketsCTA({ event, compact }) {
+  if (!event || event.status === "completed") return null;
+  return (
+    <div className={`ticket-links ${compact ? "compact" : ""}`}>
+      <div className="ticket-links-row">
+        {PROVIDERS.map((p, i) => (
+          <a
+            key={p.id}
+            className={`ticket-link-btn ${i === 0 ? "primary" : ""}`}
+            href={buildAffiliateLink(p, event)}
+            target="_blank"
+            rel="sponsored nofollow noopener noreferrer"
+            onClick={() => track("tickets_click", { provider: p.id, sportId: event.sportId, eventId: event.id })}
+          >
+            {i === 0 ? `Buy on ${p.name}` : p.name} <ArrowRight aria-hidden="true" />
+          </a>
+        ))}
+      </div>
+      {compact ? null : <small className="ticket-links-disclosure">{TICKETS_AFFILIATE_DISCLOSURE}</small>}
+    </div>
+  );
+}
+
 function TicketsPanel({ feed }) {
   const upcoming = useMemo(() => getNextMatches(feed.events, new Date(), 5), [feed.events]);
   const showPreview = !TICKETS_ENABLED && Boolean(import.meta.env && import.meta.env.DEV);
@@ -1789,10 +1822,10 @@ function TicketsPanel({ feed }) {
   );
 
   return (
-    <Collapsible title="Tickets" icon={Ticket} badge="Soon" defaultOpen={false}>
+    <Collapsible title="Tickets" icon={Ticket} defaultOpen={false}>
       <p className="tickets-intro">
-        Best-available seats for upcoming {feed.sport.label} games, ranked best to worst by
-        seat tier and price — powered by Ticketmaster.
+        Find tickets for upcoming {feed.sport.label} games through our ticketing partners.
+        Live price ranking is coming soon.
       </p>
 
       {upcoming.length ? (
@@ -1806,9 +1839,7 @@ function TicketsPanel({ feed }) {
                   {event.city ? ` · ${event.city}` : event.venue ? ` · ${event.venue}` : ""}
                 </small>
               </div>
-              <button className="tickets-cta" type="button" disabled aria-disabled="true">
-                <Ticket aria-hidden="true" /> View tickets (soon)
-              </button>
+              <TicketsCTA event={event} compact />
             </div>
           ))}
         </div>
@@ -1832,10 +1863,7 @@ function TicketsPanel({ feed }) {
         </div>
       ) : null}
 
-      <small className="tickets-note">
-        Live pricing &amp; seat ranking require the Ticketmaster Discovery API via a serverless
-        proxy. BRNDN may earn a commission from ticket links.
-      </small>
+      <small className="tickets-note">{TICKETS_AFFILIATE_DISCLOSURE}</small>
     </Collapsible>
   );
 }
@@ -2087,6 +2115,13 @@ function GameDetailModal({ event, onClose }) {
                 <BettingPanel event={event} odds={data.odds} />
                 <AdSlot placement={AD_PLACEMENTS.gameBetting} label="Sportsbook offer" />
               </div>
+
+              {event.status === "completed" ? null : (
+                <div className="detail-block">
+                  <h3 className="detail-title"><Ticket aria-hidden="true" /> Get tickets</h3>
+                  <TicketsCTA event={event} />
+                </div>
+              )}
 
               <div className="detail-block">
                 <h3 className="detail-title"><BarChart3 aria-hidden="true" /> Team stats</h3>

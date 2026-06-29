@@ -60,3 +60,46 @@ export function ticketmasterSearchUrl({ keyword, classificationName, apikey } = 
   });
   return `https://app.ticketmaster.com/discovery/v2/events.json?${params.toString()}`;
 }
+
+// --- Affiliate ticket links (no backend; deep-link out to partners) ----------
+//
+// Public ticket APIs expose only aggregate prices, never individual listings or
+// seat maps — so the seat finder monetizes via affiliate DEEP-LINKS: send the
+// user to the partner's event/search page with your tracking link and earn a
+// commission on purchase. This needs no API key and ships client-side.
+//
+// ▶ TO ACTIVATE: SeatGeek & Ticketmaster run their affiliate programs through
+//   Impact (impact.com). Once approved, paste your tracking-link prefix into each
+//   provider's `affiliateWrap` (the destination is appended url-encoded), e.g.
+//     affiliateWrap: "https://seatgeek.pxf.io/c/<PID>/<OID>/<MID>?u="
+//   Until then links go straight to the partner (still work, just no commission).
+
+export const PROVIDERS = [
+  {
+    id: "seatgeek",
+    name: "SeatGeek",
+    affiliateWrap: "", // paste your Impact tracking-link prefix (ends with ?u=)
+    search: (q) => `https://seatgeek.com/search?q=${encodeURIComponent(q)}`,
+  },
+  {
+    id: "ticketmaster",
+    name: "Ticketmaster",
+    affiliateWrap: "",
+    search: (q) => `https://www.ticketmaster.com/search?q=${encodeURIComponent(q)}`,
+  },
+];
+
+export const TICKETS_AFFILIATE_DISCLOSURE =
+  "Affiliate links — BRNDN earns a commission on ticket purchases at no extra cost to you.";
+
+/** Search query for an event: team names + city for disambiguation. */
+export function ticketQuery(event) {
+  const teams = [event?.home?.shortName, event?.away?.shortName].filter(Boolean).join(" ");
+  return [teams, event?.city].filter(Boolean).join(" ").trim() || event?.title || "";
+}
+
+/** Outbound URL: the partner's search page, wrapped in your affiliate link when set. */
+export function buildAffiliateLink(provider, event) {
+  const dest = provider.search(ticketQuery(event));
+  return provider.affiliateWrap ? provider.affiliateWrap + encodeURIComponent(dest) : dest;
+}

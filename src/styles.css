@@ -4428,3 +4428,70 @@ body.is-locked .bottom-nav {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
+
+/* ===== Seat finder — affiliate ticket links ============================= */
+.ticket-links {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ticket-links-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ticket-link-btn {
+  flex: 1 1 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  text-decoration: none;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--stroke-2);
+  border-radius: var(--radius-sm);
+  padding: 11px 14px;
+  transition: transform 160ms var(--ease), filter 160ms var(--ease), border-color 160ms var(--ease);
+}
+
+.ticket-link-btn svg {
+  width: 15px;
+  height: 15px;
+}
+
+.ticket-link-btn.primary {
+  color: #06121f;
+  background: var(--accent);
+  border-color: transparent;
+}
+
+.ticket-link-btn:hover {
+  transform: translateY(-1px);
+  border-color: var(--accent);
+}
+
+.ticket-link-btn.primary:hover {
+  filter: brightness(1.07);
+  border-color: transparent;
+}
+
+.ticket-link-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.ticket-links-disclosure {
+  color: var(--muted-2);
+  font-size: 0.72rem;
+}
+
+.ticket-links.compact .ticket-link-btn {
+  font-size: 0.82rem;
+  padding: 9px 12px;
+}
