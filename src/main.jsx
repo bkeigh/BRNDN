@@ -1095,23 +1095,74 @@ function buildPyramidGeometry(rounds) {
       thirdPlaceTop: null,
     };
   }
-  const maxMatches = Math.max(...mainRounds.map((round) => round.matches.length), 1);
-  let height = BRACKET_TOP * 2 + (maxMatches - 1) * BRACKET_STEP + CARD_HEIGHT;
-  // Buffer on the right so the Final card's glow has room and isn't clipped at the board edge.
+  // Buffer on the right so the Final card's glow has room and isn't clipped.
   const width = (mainRounds.length - 1) * LANE_WIDTH + CARD_WIDTH + 46;
-  const lanes = mainRounds.map((round, roundIndex) => {
-    const multiplier = 2 ** roundIndex;
-    return {
-      ...round,
-      roundIndex,
-      x: roundIndex * LANE_WIDTH,
-      cards: round.matches.map((match, matchIndex) => ({
-        match,
-        x: roundIndex * LANE_WIDTH,
-        y: BRACKET_TOP + matchIndex * BRACKET_STEP * multiplier + ((multiplier - 1) * BRACKET_STEP) / 2,
-      })),
+
+  // Cards per lane; vertical positions are assigned by the feeder-tree layout below.
+  const lanes = mainRounds.map((round, roundIndex) => ({
+    ...round,
+    roundIndex,
+    x: roundIndex * LANE_WIDTH,
+    cards: round.matches.map((match) => ({ match, x: roundIndex * LANE_WIDTH, y: 0 })),
+  }));
+
+  // Index every card by match number so BOTH the layout and the connectors follow
+  // the real FIFA feeder refs ("W##" placeholders, preserved even after a slot
+  // resolves to a team). The 2026 bracket is non-sequential — e.g. R32 #73 feeds
+  // R16 #90, not #89 — so each card must be positioned BETWEEN its true feeders
+  // (not by match-number order), or the connector lines cross over other cards.
+  const cardByNumber = new Map();
+  for (const lane of lanes) {
+    for (const card of lane.cards) {
+      if (Number.isFinite(card.match.matchNumber)) cardByNumber.set(card.match.matchNumber, card);
+    }
+  }
+  const feederNumber = (ref) => {
+    const m = typeof ref === "string" && ref.match(/^W(\d+)$/i);
+    return m ? Number(m[1]) : null;
+  };
+  const feedersOf = (card) =>
+    (card.match.slotRefs || []).map((ref) => cardByNumber.get(feederNumber(ref))).filter(Boolean);
+  const hasFeeders = lanes.some((lane) => lane.cards.some((card) => feedersOf(card).length));
+
+  if (hasFeeders) {
+    // Feeder-tree layout: leaves (no feeders) stack sequentially in DFS order; each
+    // parent centers vertically on its feeders. Walking from the last round (the
+    // roots) backward lays leaves out top-to-bottom with siblings adjacent — a
+    // clean, non-crossing, non-overlapping bracket.
+    let leafCursor = 0;
+    const placed = new Set();
+    const place = (card) => {
+      if (placed.has(card.match.id)) return card.y;
+      placed.add(card.match.id);
+      const feeders = feedersOf(card);
+      if (!feeders.length) {
+        card.y = BRACKET_TOP + leafCursor * BRACKET_STEP;
+        leafCursor += 1;
+      } else {
+        const ys = feeders.map(place);
+        card.y = (Math.min(...ys) + Math.max(...ys)) / 2;
+      }
+      return card.y;
     };
-  });
+    for (let li = lanes.length - 1; li >= 0; li -= 1) {
+      for (const card of lanes[li].cards) place(card);
+    }
+  } else {
+    // Positional fallback (non-FIFA / no feeder refs): classic doubling spacing.
+    for (const lane of lanes) {
+      const multiplier = 2 ** lane.roundIndex;
+      lane.cards.forEach((card, matchIndex) => {
+        card.y = BRACKET_TOP + matchIndex * BRACKET_STEP * multiplier + ((multiplier - 1) * BRACKET_STEP) / 2;
+      });
+    }
+  }
+
+  const maxCardY = lanes.reduce(
+    (m, lane) => lane.cards.reduce((mm, c) => Math.max(mm, c.y), m),
+    BRACKET_TOP,
+  );
+  let height = maxCardY + CARD_HEIGHT + BRACKET_TOP;
 
   // Clean orthogonal elbow with rounded corners (classic bracket routing).
   const elbow = (startX, startY, endX, endY) => {
@@ -1127,45 +1178,28 @@ function buildPyramidGeometry(rounds) {
           `H ${endX}`;
   };
 
-  // Index every card by match number so connectors can follow the REAL feeder
-  // refs (FIFA "W##" placeholders, preserved even after a slot resolves) instead
-  // of assuming a sequential bracket. The 2026 bracket is non-sequential — e.g.
-  // R32 #73 feeds R16 #90 (not #89) — so positional routing drew false lines.
-  const cardByNumber = new Map();
-  for (const lane of lanes) {
-    for (const card of lane.cards) {
-      if (Number.isFinite(card.match.matchNumber)) cardByNumber.set(card.match.matchNumber, card);
-    }
-  }
-  const feederNumber = (ref) => {
-    const m = typeof ref === "string" && ref.match(/^W(\d+)$/i);
-    return m ? Number(m[1]) : null;
-  };
-
   // Draw from each feeder match's card into the slot it feeds (slot A = upper team
-  // row, slot B = lower). Falls back to positional routing only if no card in the
-  // bracket carries a parseable feeder ref (non-FIFA / legacy data).
+  // row, slot B = lower). Positional fallback only when no feeder refs exist.
   const slotY = [CARD_HEIGHT * 0.46, CARD_HEIGHT * 0.72];
   const connectorPaths = [];
-  let usedFeeders = false;
-  for (let li = 1; li < lanes.length; li++) {
-    for (const target of lanes[li].cards) {
-      (target.match.slotRefs || []).forEach((ref, slot) => {
-        const n = feederNumber(ref);
-        if (n == null) return;
-        const source = cardByNumber.get(n);
-        if (!source) return;
-        usedFeeders = true;
-        const ty = target.y + (slotY[slot] ?? CARD_HEIGHT / 2);
-        connectorPaths.push({
-          key: `feed-${n}-to-${target.match.id}-${slot}`,
-          d: elbow(source.x + CARD_WIDTH, source.y + CARD_HEIGHT / 2, target.x, ty),
+  if (hasFeeders) {
+    for (let li = 1; li < lanes.length; li += 1) {
+      for (const target of lanes[li].cards) {
+        (target.match.slotRefs || []).forEach((ref, slot) => {
+          const n = feederNumber(ref);
+          if (n == null) return;
+          const source = cardByNumber.get(n);
+          if (!source) return;
+          const ty = target.y + (slotY[slot] ?? CARD_HEIGHT / 2);
+          connectorPaths.push({
+            key: `feed-${n}-to-${target.match.id}-${slot}`,
+            d: elbow(source.x + CARD_WIDTH, source.y + CARD_HEIGHT / 2, target.x, ty),
+          });
         });
-      });
+      }
     }
-  }
-  if (!usedFeeders) {
-    for (let roundIndex = 0; roundIndex < lanes.length - 1; roundIndex++) {
+  } else {
+    for (let roundIndex = 0; roundIndex < lanes.length - 1; roundIndex += 1) {
       const nextLane = lanes[roundIndex + 1];
       lanes[roundIndex].cards.forEach((card, matchIndex) => {
         const target = nextLane.cards[Math.floor(matchIndex / 2)];
